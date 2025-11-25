@@ -86,3 +86,5 @@ def get_reservation_by_id(db: Session, id_res: str):
 
 def get_client(db: Session, id_client: str):
     return db.query(models.Client).filter(models.Client.id_client == id_client).first()
+
+
