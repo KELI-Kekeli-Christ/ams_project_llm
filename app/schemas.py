@@ -17,3 +17,15 @@ class CheckReservation(BaseModel):
 class UpdatePreferences(BaseModel):
     id_client: str
     preferences: Dict
+
+class VerifyQR(BaseModel):
+    qr_id: str
+
+
+
+class CreateReservationOnSite(BaseModel):
+    nom: str
+    prenom: str
+    type_chambre: str
+    date_arrivee: str
+    date_depart: str

@@ -1,7 +1,10 @@
 from sqlalchemy.orm import Session
 from app import models
+from datetime import date, datetime
+from sqlalchemy.orm import Session
 from datetime import datetime
 
+from app.models import Client, Reservation
 
 # -----------------------------
 # 1. Vérifier ou créer un client
@@ -88,3 +91,58 @@ def get_client(db: Session, id_client: str):
     return db.query(models.Client).filter(models.Client.id_client == id_client).first()
 
 
+def confirm_arrival(db: Session, id_res: str):
+    reservation = db.query(Reservation).filter(Reservation.id_res == id_res).first()
+    if not reservation:
+        return None
+
+    # Mise à jour du statut
+    reservation.statut = "arrivé"
+
+    # Mise à jour de l'heure d'arrivée (tu peux ajouter ce champ dans modèle)
+    # reservation.arrivee_effective = datetime.utcnow()  # si tu l'ajoutes
+
+    # Mise à jour du client (fidélisation)
+    client = db.query(Client).filter(Client.id_client == reservation.id_client).first()
+    if client:
+        client.nb_visites += 1
+        client.derniere_visite = datetime.utcnow()
+
+    db.commit()
+    db.refresh(reservation)
+    return reservation
+
+
+def create_reservation_on_site(db: Session, data):
+    # Générer un nouvel ID client
+    new_id_client = f"C-{datetime.utcnow().timestamp()}"[:10].replace('.', '')
+
+    # 1. Créer le client
+    client = Client(
+        id_client=new_id_client,
+        nom=data.nom,
+        prenom=data.prenom,
+        nb_visites=0,
+        derniere_visite=None
+    )
+    db.add(client)
+    db.commit()
+    db.refresh(client)
+
+    # 2. Générer ID réservation
+    id_res = f"R-{client.id_client}-{data.date_arrivee}"
+
+    # 3. Créer la réservation
+    reservation = Reservation(
+        id_res=id_res,
+        id_client=client.id_client,
+        type_chambre=data.type_chambre,
+        date_arrivee=date.fromisoformat(data.date_arrivee),
+        date_depart=date.fromisoformat(data.date_depart),
+        statut="en attente"
+    )
+    db.add(reservation)
+    db.commit()
+    db.refresh(reservation)
+
+    return client, reservation

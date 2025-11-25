@@ -2,8 +2,9 @@ from fastapi import FastAPI
 from app import db
 from fastapi import Depends, HTTPException
 from sqlalchemy.orm import Session
-from datetime import date
+from datetime import date, datetime
 from fastapi import HTTPException
+from app import schemas
 
 from app.db import get_session
 from app import crud
@@ -164,4 +165,38 @@ def verify_qr(data: dict, db: Session = Depends(get_db)):
             "nb_visites": client.nb_visites,
             "derniere_visite": str(client.derniere_visite)
         }
+    }
+
+
+@app.post("/confirm_arrival")
+def confirm_arrival_route(payload: schemas.VerifyQR, db: Session = Depends(get_db)):
+    reservation = crud.confirm_arrival(db, payload.qr_id)
+    if not reservation:
+        raise HTTPException(status_code=404, detail="Réservation inconnue")
+
+    return {
+        "status": "arrival_confirmed",
+        "id_reservation": reservation.id_res,
+        "message": "Arrivée enregistrée. Vous pouvez aller récupérer vos clés."
+    }
+
+
+
+
+@app.post("/create_reservation_on_site")
+def create_reservation_on_site(payload: schemas.CreateReservationOnSite, db: Session = Depends(get_db)):
+    client, reservation = crud.create_reservation_on_site(db, payload)
+
+    # Facultatif : on génère un QR code aussi pour les réservations sur place
+    qr_id = reservation.id_res
+    qr_bytes = qrcode.make(qr_id)
+    qr_path = f"app/static/qr/{qr_id}.png"
+    qr_bytes.save(qr_path)
+
+    return {
+        "status": "created_on_site",
+        "client_id": client.id_client,
+        "reservation_id": reservation.id_res,
+        "qr_code_path": qr_path,
+        "message": "Réservation créée. Présentez ce QR code à votre arrivée."
     }
