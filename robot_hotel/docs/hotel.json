@@ -1,0 +1,39 @@
+{
+  "nom": "Hôtel Lumière Paris",
+  "adresse": "12 Rue de la Paix, 75002 Paris",
+  "telephone": "+33 1 23 45 67 89",
+  "email": "contact@lumiere-paris.com",
+  "site_web": "https://www.lumiere-paris.com",
+  "check_in": "15:00",
+  "check_out": "11:00",
+  "politique_annulation": "Gratuite jusqu'à 48h avant l'arrivée. Passé ce délai, 1 nuit facturée.",
+  "animaux": "Acceptés avec supplément de 25€/nuit (chiens < 10kg uniquement)",
+  "parking": "Parking privé : 30€/jour (réservation conseillée)",
+  "wifi": "Gratuit dans tout l'hôtel (fibre optique)",
+  "langues_parlees": ["Français", "Anglais", "Espagnol", "Allemand"],
+  "services": [
+    "Réception 24h/24",
+    "Room service 7h-23h",
+    "Conciergerie",
+    "Bagagerie gratuite",
+    "Pressing (24h)",
+    "Salle de sport",
+    "Spa & sauna",
+    "Piscine intérieure chauffée"
+  ],
+  "restauration": {
+    "restaurant": "Le Lumière",
+    "type": "Cuisine française raffinée",
+    "horaires": "12h-14h30 et 19h-22h30",
+    "petit_dejeuner": "Buffet continental : 7h-10h30 (25€/pers)"
+  },
+  "chambres": {
+    "total": 85,
+    "types": [
+      {"nom": "Classique", "superficie": "20m²", "prix": 180},
+      {"nom": "Supérieure", "superficie": "28m²", "prix": 250},
+      {"nom": "Deluxe", "superficie": "35m²", "prix": 320},
+      {"nom": "Suite Junior", "superficie": "45m²", "prix": 450}
+    ]
+  }
+}
