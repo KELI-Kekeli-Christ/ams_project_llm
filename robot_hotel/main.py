@@ -20,6 +20,10 @@ from flask_cors import CORS
 from werkzeug.datastructures import FileStorage
 import os
 import requests
+import cv2
+import numpy as np
+import threading
+import time as time_module
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
@@ -72,6 +76,14 @@ swagger_template = {
         {
             "name": "System",
             "description": "Endpoints système"
+        },
+        {
+            "name": "QR Code",
+            "description": "Endpoints pour le scan et vérification de QR codes"
+        },
+        {
+            "name": "QR Code",
+            "description": "Endpoints pour le scan et vérification de QR codes"
         }
     ]
 }
@@ -633,6 +645,400 @@ def handle_get_detections():
         description: Erreur - Aucun stream en cours
     """
     return get_latest_detections()
+
+def detect_qr_in_image(img):
+    """
+    Détecte un QR code dans une image
+    
+    Args:
+        img: Image numpy array (BGR format from cv2)
+    
+    Returns:
+        tuple: (success, qr_id) ou (False, None)
+    """
+    detector = cv2.QRCodeDetector()
+    retval, decoded_info, points, straight_qrcode = detector.detectAndDecodeMulti(img)
+    
+    if retval and decoded_info and len(decoded_info) > 0 and decoded_info[0]:
+        qr_id = decoded_info[0].strip()
+        if qr_id:
+            return True, qr_id
+    
+    return False, None
+
+def verify_qr_with_api(qr_id):
+    """
+    Vérifie un QR code via l'API FastAPI
+    
+    Args:
+        qr_id: ID du QR code à vérifier
+    
+    Returns:
+        dict: Résultat de la vérification
+    """
+    try:
+        reservation_api_url = os.getenv("RESERVATION_API_URL", "http://localhost:8000")
+        verify_url = f"{reservation_api_url}/verify_qr"
+        
+        response = requests.post(
+            verify_url,
+            json={"qr_id": qr_id},
+            timeout=10
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            return {
+                "success": True,
+                "qr_id": qr_id,
+                "reservation": result.get("reservation", {}),
+                "client": result.get("client", {})
+            }
+        elif response.status_code == 404:
+            return {
+                "success": False,
+                "error": "QR code invalide ou réservation non trouvée",
+                "qr_id": qr_id
+            }
+        else:
+            error_detail = response.json().get("detail", "Erreur inconnue")
+            return {
+                "success": False,
+                "error": f"Erreur lors de la vérification: {error_detail}",
+                "qr_id": qr_id
+            }
+            
+    except requests.exceptions.ConnectionError:
+        return {
+            "success": False,
+            "error": "Impossible de se connecter à l'API de réservation. Vérifiez que le serveur FastAPI est démarré.",
+            "qr_id": qr_id
+        }
+    except requests.exceptions.Timeout:
+        return {
+            "success": False,
+            "error": "Timeout lors de la vérification du QR code",
+            "qr_id": qr_id
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Erreur lors de la vérification: {str(e)}",
+            "qr_id": qr_id
+        }
+
+@app.route("/scan_qr", methods=["POST"])
+def handle_scan_qr():
+    """
+    Scanne un QR code depuis une image et retourne les informations de réservation
+    ---
+    tags:
+      - QR Code
+    consumes:
+      - multipart/form-data
+    produces:
+      - application/json
+    parameters:
+      - in: formData
+        name: file
+        type: file
+        required: true
+        description: Image contenant le QR code à scanner
+    responses:
+      200:
+        description: QR code scanné et vérifié avec succès
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            qr_id:
+              type: string
+              description: ID du QR code détecté
+            reservation:
+              type: object
+              description: Informations de la réservation
+            client:
+              type: object
+              description: Informations du client
+      400:
+        description: Erreur - Fichier non fourni, image invalide ou QR code non détecté
+      404:
+        description: QR code invalide ou réservation non trouvée
+      500:
+        description: Erreur serveur
+    """
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided", "success": False}), 400
+    
+    file = request.files["file"]
+    if file.filename == "":
+        return jsonify({"error": "No file selected", "success": False}), 400
+    
+    try:
+        # Lire l'image
+        file_bytes = file.read()
+        nparr = np.frombuffer(file_bytes, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+        if img is None:
+            return jsonify({"error": "Invalid image file", "success": False}), 400
+        
+        # Détecter le QR code
+        success, qr_id = detect_qr_in_image(img)
+        
+        if not success:
+            return jsonify({"error": "QR code not detected in image", "success": False}), 400
+        
+        # Vérifier le QR code via l'API
+        result = verify_qr_with_api(qr_id)
+        
+        if result["success"]:
+            return jsonify(result)
+        else:
+            status_code = 404 if "invalide" in result.get("error", "").lower() else 500
+            return jsonify(result), status_code
+            
+    except Exception as e:
+        return jsonify({"error": f"Erreur lors du traitement de l'image: {str(e)}", "success": False}), 500
+
+# Variables globales pour le streaming QR code
+qr_stream_capture = None
+qr_stream_thread = None
+qr_stream_active = False
+qr_stream_lock = threading.Lock()
+latest_qr_result = None
+
+def qr_stream_worker(video_url=None, camera_index=0):
+    """Thread worker pour capturer et analyser le flux vidéo QR code"""
+    global qr_stream_capture, qr_stream_active, latest_qr_result
+    
+    try:
+        # Ouvrir le flux vidéo
+        if video_url:
+            qr_stream_capture = cv2.VideoCapture(video_url)
+        else:
+            qr_stream_capture = cv2.VideoCapture(camera_index)
+        
+        if not qr_stream_capture.isOpened():
+            error_msg = f"Impossible d'ouvrir la caméra {camera_index} ou l'URL {video_url}"
+            print(f"❌ {error_msg}")
+            with qr_stream_lock:
+                qr_stream_active = False
+                latest_qr_result = {"error": error_msg, "success": False}
+            return
+        
+        print(f"✅ Stream QR code démarré - Camera: {camera_index}, URL: {video_url or 'None'}")
+        
+        frame_skip = 3  # Analyser une frame sur 3 pour améliorer les performances
+        
+        while qr_stream_active:
+            ret, frame = qr_stream_capture.read()
+            
+            if not ret:
+                time_module.sleep(0.1)
+                continue
+            
+            # Analyser une frame sur frame_skip
+            if frame_skip > 0:
+                frame_skip -= 1
+                continue
+            frame_skip = 3
+            
+            # Détecter le QR code dans la frame
+            success, qr_id = detect_qr_in_image(frame)
+            
+            if success and qr_id:
+                # Vérifier le QR code
+                result = verify_qr_with_api(qr_id)
+                with qr_stream_lock:
+                    latest_qr_result = result
+                    if result.get("success"):
+                        # Arrêter le stream si un QR code valide est trouvé
+                        qr_stream_active = False
+            
+            time_module.sleep(0.2)  # Pause entre les analyses
+    
+    except Exception as e:
+        with qr_stream_lock:
+            qr_stream_active = False
+            latest_qr_result = {"error": str(e)}
+    finally:
+        if qr_stream_capture is not None:
+            qr_stream_capture.release()
+            qr_stream_capture = None
+
+@app.route("/scan_qr/stream/start", methods=["POST"])
+def handle_scan_qr_stream_start():
+    """
+    Démarre le streaming vidéo pour la détection automatique de QR code
+    ---
+    tags:
+      - QR Code
+    consumes:
+      - application/json
+    produces:
+      - application/json
+    parameters:
+      - in: body
+        name: body
+        schema:
+          type: object
+          properties:
+            video_url:
+              type: string
+              description: URL du flux vidéo (optionnel)
+            camera_index:
+              type: integer
+              description: Index de la caméra (par défaut 0)
+    responses:
+      200:
+        description: Stream démarré avec succès
+    """
+    global qr_stream_thread, qr_stream_active
+    
+    data = request.get_json() or {}
+    video_url = data.get("video_url")
+    camera_index = data.get("camera_index", 0)
+    
+    if qr_stream_active:
+        return jsonify({"error": "Stream déjà actif", "success": False}), 400
+    
+    # Arrêter le stream précédent s'il existe
+    qr_stream_active = False
+    if qr_stream_thread:
+        qr_stream_thread.join(timeout=2.0)
+    
+    qr_stream_active = True
+    qr_stream_thread = threading.Thread(
+        target=qr_stream_worker,
+        args=(video_url, camera_index),
+        daemon=True
+    )
+    qr_stream_thread.start()
+    
+    return jsonify({
+        "success": True,
+        "message": f"Stream QR code démarré (camera: {camera_index}, URL: {video_url or 'None'})"
+    })
+
+@app.route("/scan_qr/stream/stop", methods=["POST"])
+def handle_scan_qr_stream_stop():
+    """
+    Arrête le streaming vidéo QR code
+    ---
+    tags:
+      - QR Code
+    produces:
+      - application/json
+    responses:
+      200:
+        description: Stream arrêté avec succès
+    """
+    global qr_stream_active, qr_stream_thread
+    
+    qr_stream_active = False
+    if qr_stream_thread:
+        qr_stream_thread.join(timeout=2.0)
+        qr_stream_thread = None
+    
+    return jsonify({
+        "success": True,
+        "message": "Stream QR code arrêté"
+    })
+
+@app.route("/scan_qr/stream/status", methods=["GET"])
+def handle_scan_qr_stream_status():
+    """
+    Récupère le statut et les derniers résultats du stream QR code
+    ---
+    tags:
+      - QR Code
+    produces:
+      - application/json
+    responses:
+      200:
+        description: Statut du stream
+    """
+    global qr_stream_active, latest_qr_result
+    
+    with qr_stream_lock:
+        result = latest_qr_result.copy() if latest_qr_result else None
+    
+    return jsonify({
+        "active": qr_stream_active,
+        "result": result
+    })
+
+@app.route("/scan_qr/stream", methods=["POST"])
+def handle_scan_qr_stream():
+    """
+    Scanne un QR code depuis un flux vidéo (capture d'une frame)
+    ---
+    tags:
+      - QR Code
+    consumes:
+      - multipart/form-data
+    produces:
+      - application/json
+    parameters:
+      - in: formData
+        name: file
+        type: file
+        required: true
+        description: Image/frame du flux vidéo contenant le QR code à scanner
+      - in: formData
+        name: video_url
+        type: string
+        required: false
+        description: URL du flux vidéo (optionnel)
+    responses:
+      200:
+        description: Résultat du scan (peut être vide si aucun QR code détecté)
+        schema:
+          type: object
+          properties:
+            detected:
+              type: boolean
+            qr_id:
+              type: string
+            success:
+              type: boolean
+            reservation:
+              type: object
+            client:
+              type: object
+    """
+    if "file" not in request.files:
+        return jsonify({"detected": False, "success": False}), 200
+    
+    file = request.files["file"]
+    
+    try:
+        # Lire l'image
+        file_bytes = file.read()
+        if len(file_bytes) == 0:
+            return jsonify({"detected": False, "success": False}), 200
+            
+        nparr = np.frombuffer(file_bytes, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+        if img is None:
+            return jsonify({"detected": False, "success": False}), 200
+        
+        # Détecter le QR code
+        success, qr_id = detect_qr_in_image(img)
+        
+        if not success:
+            return jsonify({"detected": False, "success": False}), 200
+        
+        # Vérifier le QR code via l'API
+        result = verify_qr_with_api(qr_id)
+        result["detected"] = True
+        return jsonify(result)
+            
+    except Exception as e:
+        return jsonify({"detected": False, "success": False, "error": str(e)}), 200
 
 @app.route("/")
 def home():

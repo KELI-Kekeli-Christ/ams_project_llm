@@ -303,6 +303,65 @@ def chat_with_api(message):
         print("Erreur lors de la communication avec le chat: {}".format(e))
         return None
 
+def make_reservation_with_api(audio_file):
+    """
+    Crée une réservation depuis un fichier audio via l'API Flask
+    
+    Args:
+        audio_file: Chemin du fichier audio contenant la demande de réservation
+    
+    Returns:
+        dict: Résultat de la création de réservation ou None en cas d'erreur
+    """
+    try:
+        print("Création de réservation depuis l'audio...")
+        
+        # Construire le chemin absolu si nécessaire
+        if not os.path.isabs(audio_file):
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            robot_hotel_dir = os.path.dirname(script_dir)
+            audio_file = os.path.join(robot_hotel_dir, audio_file)
+        
+        if not os.path.exists(audio_file):
+            print("Erreur: Le fichier n'existe pas: {}".format(audio_file))
+            return None
+        
+        with open(audio_file, "rb") as f:
+            response = requests.post(
+                "{}/make_reservation".format(API_CONFIG["base_url"]),
+                files={"file": f},
+                timeout=API_CONFIG["timeout"]
+            )
+            response.raise_for_status()
+            result = response.json()
+            print("Résultat de la réservation: {}".format(result))
+            return result
+    except Exception as e:
+        print("Erreur lors de la création de réservation: {}".format(e))
+        return None
+
+def is_reservation_request(text):
+    """
+    Détermine si le texte contient une demande de réservation
+    
+    Args:
+        text: Texte à analyser
+    
+    Returns:
+        bool: True si c'est une demande de réservation
+    """
+    if not text:
+        return False
+    
+    text_lower = text.lower()
+    reservation_keywords = [
+        "réserver", "réservation", "chambre", "reserver", "reservation",
+        "réserver une chambre", "je veux réserver", "je voudrais réserver",
+        "book", "booking", "reserve"
+    ]
+    
+    return any(keyword in text_lower for keyword in reservation_keywords)
+
 
 
 
@@ -314,33 +373,88 @@ def chat_with_api(message):
 # ============================================================================
 # Fonctions utilitaires
 # ============================================================================
-def create_tablet_html(title, message, subtitle="", status=""):
+def create_tablet_html(title, message, subtitle="", status="", show_mic_button=False, mic_active=False):
     """
-    Crée un contenu HTML pour la tablette
+    Crée un contenu HTML pour la tablette avec un bouton micro interactif
     
     Args:
         title: Titre principal
         message: Message principal
         subtitle: Sous-titre (optionnel)
         status: Statut/étape actuelle (optionnel)
+        show_mic_button: Afficher le bouton micro (optionnel)
+        mic_active: État du bouton micro (True = actif/enregistrement)
     
     Returns:
         str: Contenu HTML
     """
-    status_html = "<div style='background-color: rgba(255,255,255,0.2); padding: 10px; border-radius: 5px; margin-bottom: 20px;'>{}</div>".format(status) if status else ""
+    status_html = "<div style='background-color: rgba(255,255,255,0.2); padding: 10px; border-radius: 5px; margin-bottom: 20px; font-size: 18px;'>{}</div>".format(status) if status else ""
+    
+    # Bouton micro avec animation
+    mic_button_html = ""
+    if show_mic_button:
+        mic_color = "#ff4444" if mic_active else "#4CAF50"
+        mic_size = "120px" if mic_active else "100px"
+        mic_animation = "pulse 1.5s infinite" if mic_active else "none"
+        
+        mic_button_html = """
+        <div style="margin-top: 30px;">
+            <button id="micButton" onclick="startRecording()" style="
+                background: radial-gradient(circle, {} 0%, {} 100%);
+                border: none;
+                border-radius: 50%;
+                width: {};
+                height: {};
+                cursor: pointer;
+                box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+                transition: all 0.3s ease;
+                animation: {};
+            " onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'">
+                <span style="font-size: 60px;">🎤</span>
+            </button>
+            <p style="margin-top: 15px; font-size: 20px; opacity: 0.9;">
+                {}
+            </p>
+        </div>
+        <style>
+            @keyframes pulse {{
+                0% {{ transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 68, 68, 0.7); }}
+                50% {{ transform: scale(1.1); box-shadow: 0 0 0 20px rgba(255, 68, 68, 0); }}
+                100% {{ transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 68, 68, 0); }}
+            }}
+        </style>
+        <script>
+            function startRecording() {{
+                var btn = document.getElementById('micButton');
+                btn.style.background = 'radial-gradient(circle, #ff4444 0%, #cc0000 100%)';
+                btn.innerHTML = '<span style="font-size: 60px;">🔴</span>';
+                // Dans un vrai scénario, ceci déclencherait l'enregistrement via une API
+                // Pour l'instant, on simule juste l'action
+            }}
+        </script>
+        """.format(
+            mic_color, 
+            mic_color.replace("4", "8") if not mic_active else mic_color.replace("ff4444", "cc0000"),
+            mic_size,
+            mic_size,
+            mic_animation,
+            "🟢 Parlez maintenant" if mic_active else "Appuyez pour parler"
+        )
     
     html = """
     <html>
     <head>
         <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
     </head>
-    <body style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; font-family: 'Arial', sans-serif; padding: 30px; text-align: center; min-height: 100vh; margin: 0;">
-        <div style="background-color: rgba(255,255,255,0.1); border-radius: 15px; padding: 30px; box-shadow: 0 8px 32px rgba(0,0,0,0.1);">
+    <body style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; font-family: 'Arial', sans-serif; padding: 20px; text-align: center; min-height: 100vh; margin: 0; display: flex; flex-direction: column; justify-content: center;">
+        <div style="background-color: rgba(255,255,255,0.1); border-radius: 15px; padding: 30px; box-shadow: 0 8px 32px rgba(0,0,0,0.1); max-width: 100%;">
             {}
-            <h1 style="font-size: 42px; margin: 20px 0; text-shadow: 2px 2px 4px rgba(0,0,0,0.3);">{}</h1>
+            <h1 style="font-size: 36px; margin: 15px 0; text-shadow: 2px 2px 4px rgba(0,0,0,0.3);">{}</h1>
             <div style="background-color: rgba(255,255,255,0.15); border-radius: 10px; padding: 20px; margin: 20px 0;">
-                <p style="font-size: 28px; line-height: 1.6; margin: 0;">{}</p>
+                <p style="font-size: 24px; line-height: 1.6; margin: 0;">{}</p>
             </div>
+            {}
             {}
         </div>
     </body>
@@ -349,18 +463,19 @@ def create_tablet_html(title, message, subtitle="", status=""):
         status_html,
         title,
         message,
-        "<div style='margin-top: 20px; padding: 15px; background-color: rgba(255,255,255,0.1); border-radius: 8px;'><p style='font-size: 20px; margin: 0;'><strong>Question:</strong> {}</p></div>".format(subtitle) if subtitle else ""
+        "<div style='margin-top: 20px; padding: 15px; background-color: rgba(255,255,255,0.1); border-radius: 8px;'><p style='font-size: 18px; margin: 0;'><strong>💬 Vous:</strong> {}</p></div>".format(subtitle) if subtitle else "",
+        mic_button_html
     )
     return html
 
 
 # ============================================================================
-# Fonction principale
+# Fonction principale - Conversation interactive
 # ============================================================================
 def main():
-    """Fonction principale"""
+    """Fonction principale avec conversation interactive"""
     print("=" * 60)
-    print("Test de connexion au robot Pepper")
+    print("🤖 Robot Pepper - Mode Conversation Interactive")
     print("=" * 60)
     print("Configuration:")
     print("  IP: {}".format(ROBOT_CONFIG["ip"]))
@@ -383,144 +498,369 @@ def main():
     robot.initialize_services()
     
     try:
-        # Test de base: Faire parler le robot
+        # Message d'accueil
+        welcome_message = "Bonjour ! Je suis Pepper, votre assistant hôtelier. Appuyez sur le micro pour commencer à me parler."
         if robot.tts:
-            robot.say("Je suis prêt. Dites quelque chose et je vais vous répondre.", 
-                      language=ROBOT_CONFIG["language"])
+            robot.say(welcome_message, language=ROBOT_CONFIG["language"])
         
-        # Afficher du texte sur la tablette
+        # Afficher l'interface initiale avec bouton micro
         if robot.tablet:
             html_content = create_tablet_html(
-                title="🤖 Robot Connecté!",
-                message="Prêt à écouter",
-                subtitle="Parlez et je répondrai",
-                status="🟢 En attente..."
+                title="🤖 Pepper",
+                message="Prêt à vous aider",
+                subtitle="",
+                status="🟢 En attente",
+                show_mic_button=True,
+                mic_active=False
             )
             robot.display_text(html_content)
         else:
             print("💡 Astuce: La tablette n'est pas disponible sur le robot virtuel")
-            print("   Les résultats seront affichés dans la console et le robot parlera la réponse")
+            print("   Les interactions se feront via la console")
+        
+        # État de la conversation pour les réservations
+        conversation_context = {
+            "in_reservation_mode": False,
+            "collected_info": {},
+            "missing_fields": []
+        }
         
         # ====================================================================
-        # Workflow complet: Enregistrement -> Transcription -> Chat -> Réponse
+        # BOUCLE DE CONVERSATION
         # ====================================================================
+        conversation_count = 0
+        max_conversations = 50  # Limite de sécurité
         
-        # 1. Enregistrer l'audio
-        print("\n" + "=" * 60)
-        print("ÉTAPE 1: Enregistrement audio")
-        print("=" * 60)
-        if robot.tablet:
-            html_content = create_tablet_html(
-                title="🎤 Enregistrement...",
-                message="Parlez maintenant",
-                status="🟡 Enregistrement en cours..."
-            )
-            robot.display_text(html_content)
-        
-        audio_file = record_audio()
-        if not audio_file:
-            print("❌ Échec de l'enregistrement. Arrêt du workflow.")
+        while conversation_count < max_conversations:
+            conversation_count += 1
+            print("\n" + "=" * 60)
+            print("💬 Tour de conversation #{}".format(conversation_count))
+            print("=" * 60)
+            
+            # Afficher le bouton micro en attente
             if robot.tablet:
                 html_content = create_tablet_html(
-                    title="❌ Erreur",
-                    message="Échec de l'enregistrement",
-                    status="🔴 Erreur"
+                    title="🤖 Pepper",
+                    message="Appuyez sur le micro pour parler",
+                    subtitle="",
+                    status="🟢 En attente",
+                    show_mic_button=True,
+                    mic_active=False
                 )
                 robot.display_text(html_content)
-            return
-        
-        # 2. Transcrire l'audio
-        print("\n" + "=" * 60)
-        print("ÉTAPE 2: Transcription audio")
-        print("=" * 60)
-        if robot.tablet:
-            html_content = create_tablet_html(
-                title="📝 Transcription...",
-                message="Analyse de votre message",
-                status="🟡 Transcription en cours..."
-            )
-            robot.display_text(html_content)
-        
-        transcribed_text = transcribe_audio(audio_file)
-        if not transcribed_text:
-            print("❌ Échec de la transcription. Arrêt du workflow.")
+            
+            # Demander à l'utilisateur de parler
+            if robot.tts and conversation_count == 1:
+                # Déjà dit au début
+                pass
+            elif not conversation_context["in_reservation_mode"]:
+                if robot.tts:
+                    robot.say("Comment puis-je vous aider ?", language=ROBOT_CONFIG["language"])
+            
+            # Attendre que l'utilisateur déclenche l'enregistrement (via micro de la tablette)
+            # Dans un vrai scénario, ce serait déclenché par l'appui tactile sur le bouton micro
+            print("\n⏳ Appuyez sur ENTRÉE ou sur le micro de la tablette pour commencer l'enregistrement...")
+            print("   (En production, cela serait déclenché automatiquement par l'appui sur le bouton)")
+            
+            # Simuler l'attente de l'appui (en production, utiliserait les événements tactiles de Pepper)
+            # Pour l'instant, on attend juste un court délai ou une entrée clavier
+            try:
+                import select
+                import sys
+                if select.select([sys.stdin], [], [], 2)[0]:
+                    input()  # Attendre une entrée si disponible
+            except:
+                time.sleep(2)  # Sinon attendre 2 secondes
+            
+            # 1. Enregistrer l'audio
             if robot.tablet:
                 html_content = create_tablet_html(
-                    title="❌ Erreur",
-                    message="Échec de la transcription",
-                    status="🔴 Erreur"
+                    title="🎤 Enregistrement...",
+                    message="Je vous écoute",
+                    status="🟡 Enregistrement en cours...",
+                    show_mic_button=True,
+                    mic_active=True
                 )
                 robot.display_text(html_content)
-            return
-        
-        print("✅ Texte transcrit: '{}'".format(transcribed_text))
-        
-        # Afficher la transcription sur la tablette
-        if robot.tablet:
-            html_content = create_tablet_html(
-                title="✅ Transcription réussie",
-                message=transcribed_text,
-                subtitle="",
-                status="🟢 Texte transcrit"
-            )
-            robot.display_text(html_content)
-            time.sleep(2)  # Laisser le temps de voir la transcription
-        
-        # 3. Envoyer le message au service de chat
-        print("\n" + "=" * 60)
-        print("ÉTAPE 3: Traitement par le chatbot")
-        print("=" * 60)
-        if robot.tablet:
-            html_content = create_tablet_html(
-                title="🤔 Traitement...",
-                message="Analyse de votre question",
-                subtitle=transcribed_text,
-                status="🟡 Génération de la réponse..."
-            )
-            robot.display_text(html_content)
-        
-        chat_response = chat_with_api(transcribed_text)
-        if not chat_response:
-            print("❌ Échec de la communication avec le chat. Arrêt du workflow.")
+            
+            print("📹 Démarrage de l'enregistrement...")
+            audio_file = record_audio()
+            
+            if not audio_file:
+                error_msg = "Je n'ai pas réussi à enregistrer votre message. Pouvez-vous réessayer ?"
+                print("❌ Échec de l'enregistrement")
+                if robot.tts:
+                    robot.say(error_msg, language=ROBOT_CONFIG["language"])
+                if robot.tablet:
+                    html_content = create_tablet_html(
+                        title="❌ Erreur",
+                        message="Échec de l'enregistrement",
+                        status="🔴 Veuillez réessayer",
+                        show_mic_button=True,
+                        mic_active=False
+                    )
+                    robot.display_text(html_content)
+                continue
+            
+            # 2. Transcrire l'audio
             if robot.tablet:
                 html_content = create_tablet_html(
-                    title="❌ Erreur",
-                    message="Échec de la communication",
-                    status="🔴 Erreur"
+                    title="📝 Transcription...",
+                    message="Je comprends votre message",
+                    status="🟡 Analyse en cours...",
+                    show_mic_button=False
                 )
                 robot.display_text(html_content)
-            return
+            
+            print("📝 Transcription de l'audio...")
+            transcribed_text = transcribe_audio(audio_file)
+            
+            # Vérifier si la transcription a réussi
+            if not transcribed_text or len(transcribed_text.strip()) < 3:
+                error_msg = "Je n'ai pas bien compris ce que vous avez dit. Pouvez-vous répéter, s'il vous plaît ?"
+                print("❌ Transcription vide ou trop courte")
+                if robot.tts:
+                    robot.say(error_msg, language=ROBOT_CONFIG["language"])
+                if robot.tablet:
+                    html_content = create_tablet_html(
+                        title="❓",
+                        message="Je n'ai pas compris",
+                        subtitle="Veuillez répéter",
+                        status="🟡 Transcription échouée",
+                        show_mic_button=True,
+                        mic_active=False
+                    )
+                    robot.display_text(html_content)
+                continue
+            
+            print("✅ Texte transcrit: '{}'".format(transcribed_text))
+            
+            # Afficher la transcription sur la tablette
+            if robot.tablet:
+                html_content = create_tablet_html(
+                    title="✅ Compris",
+                    message="J'ai bien entendu",
+                    subtitle=transcribed_text,
+                    status="🟢 Transcription réussie",
+                    show_mic_button=False
+                )
+                robot.display_text(html_content)
+            
+            time.sleep(1)
+            
+            # 3. Détecter si c'est une demande de réservation
+            if is_reservation_request(transcribed_text) or conversation_context["in_reservation_mode"]:
+                # Mode réservation
+                print("📅 Détection d'une demande de réservation")
+                conversation_context["in_reservation_mode"] = True
+                
+                if robot.tablet:
+                    html_content = create_tablet_html(
+                        title="📅 Réservation",
+                        message="Traitement de votre demande",
+                        subtitle=transcribed_text,
+                        status="🟡 Création en cours...",
+                        show_mic_button=False
+                    )
+                    robot.display_text(html_content)
+                
+                # Créer la réservation
+                reservation_result = make_reservation_with_api(audio_file)
+                
+                if reservation_result and reservation_result.get("status") == "success":
+                    # Réservation créée avec succès
+                    # Extraire l'ID de réservation depuis la réponse
+                    reservation_info = reservation_result.get("reservation", {})
+                    reservation_id = reservation_info.get("id_reservation") or reservation_info.get("id_res") or reservation_info.get("reservation_id") or "N/A"
+                    success_msg = "Parfait ! Votre réservation a été créée avec succès. Votre numéro de réservation est {}. Merci et à bientôt !".format(reservation_id)
+                    
+                    if robot.tts:
+                        robot.say(success_msg, language=ROBOT_CONFIG["language"])
+                    
+                    if robot.tablet:
+                        html_content = create_tablet_html(
+                            title="✅ Réservation créée !",
+                            message="Numéro: {}".format(reservation_id),
+                            subtitle=transcribed_text,
+                            status="🟢 Succès",
+                            show_mic_button=True,
+                            mic_active=False
+                        )
+                        robot.display_text(html_content)
+                    
+                    # Réinitialiser le contexte
+                    conversation_context["in_reservation_mode"] = False
+                    conversation_context["collected_info"] = {}
+                    
+                    print("✅ Réservation créée avec succès: {}".format(reservation_id))
+                    time.sleep(3)
+                    
+                else:
+                    # Vérifier si des informations manquent (analyse de l'erreur ou des données)
+                    reservation_data = reservation_result.get("reservation_data", {}) if reservation_result else {}
+                    error_msg = reservation_result.get("error", "").lower() if reservation_result else ""
+                    
+                    # Vérifier ce qui manque dans les données extraites
+                    nom = reservation_data.get("nom", "").strip() if reservation_data else ""
+                    prenom = reservation_data.get("prenom", "").strip() if reservation_data else ""
+                    
+                    # Utiliser les infos collectées précédemment si disponibles
+                    if not nom or nom.lower() in ["inconnu", ""]:
+                        nom = conversation_context["collected_info"].get("nom", "")
+                    if not prenom or prenom.lower() in ["inconnu", ""]:
+                        prenom = conversation_context["collected_info"].get("prenom", "")
+                    
+                    # Déterminer ce qui manque
+                    missing_nom = not nom or nom.lower() in ["inconnu", ""]
+                    missing_prenom = not prenom or prenom.lower() in ["inconnu", ""]
+                    
+                    if missing_nom or missing_prenom or "nom" in error_msg or "prenom" in error_msg:
+                        # Informations manquantes (nom/prénom) - continuer la conversation
+                        if missing_nom and not conversation_context["collected_info"].get("nom"):
+                            missing_msg = "Pour créer votre réservation, j'ai besoin de connaître votre nom. Quel est votre nom de famille, s'il vous plaît ?"
+                            conversation_context["missing_fields"] = ["nom"]
+                        elif missing_prenom and not conversation_context["collected_info"].get("prenom"):
+                            missing_msg = "Merci. Et quel est votre prénom, s'il vous plaît ?"
+                            conversation_context["missing_fields"] = ["prenom"]
+                            # Sauvegarder le nom si on vient de le collecter
+                            if nom and nom.lower() not in ["inconnu", ""]:
+                                conversation_context["collected_info"]["nom"] = nom
+                        else:
+                            missing_msg = "Il me manque quelques informations pour finaliser votre réservation. Pouvez-vous me donner votre nom complet, s'il vous plaît ?"
+                            conversation_context["missing_fields"] = ["nom", "prenom"]
+                        
+                        if robot.tts:
+                            robot.say(missing_msg, language=ROBOT_CONFIG["language"])
+                        
+                        if robot.tablet:
+                            html_content = create_tablet_html(
+                                title="❓ Information manquante",
+                                message=missing_msg,
+                                subtitle=transcribed_text,
+                                status="🟡 En attente d'informations",
+                                show_mic_button=True,
+                                mic_active=False
+                            )
+                            robot.display_text(html_content)
+                        
+                        # Stocker les nouvelles informations collectées
+                        if nom and nom.lower() not in ["inconnu", ""]:
+                            conversation_context["collected_info"]["nom"] = nom
+                        if prenom and prenom.lower() not in ["inconnu", ""]:
+                            conversation_context["collected_info"]["prenom"] = prenom
+                        
+                        print("⚠️ Information manquante. Message: {}".format(missing_msg))
+                        print("   Informations collectées: {}".format(conversation_context["collected_info"]))
+                        continue
+                    else:
+                        # Autre erreur
+                        error_msg_full = reservation_result.get("error", "Erreur inconnue lors de la création de la réservation") if reservation_result else "Erreur inconnue"
+                        error_display = "Je suis désolé, il y a eu un problème lors de la création de votre réservation. Pouvez-vous réessayer en donnant plus de détails, notamment votre nom, prénom, le type de chambre et les dates ?"
+                        
+                        if robot.tts:
+                            robot.say(error_display, language=ROBOT_CONFIG["language"])
+                        
+                        if robot.tablet:
+                            html_content = create_tablet_html(
+                                title="❌ Erreur",
+                                message="Problème lors de la création",
+                                subtitle=error_msg_full[:150] if len(error_msg_full) > 0 else "Erreur inconnue",
+                                status="🔴 Erreur",
+                                show_mic_button=True,
+                                mic_active=False
+                            )
+                            robot.display_text(html_content)
+                        
+                        print("❌ Erreur lors de la création de réservation: {}".format(error_msg_full))
+                        # Réinitialiser le contexte pour permettre une nouvelle tentative
+                        conversation_context["in_reservation_mode"] = False
+                        conversation_context["collected_info"] = {}
+                        continue
+                
+            else:
+                # Mode conversation normale (questions/réponses)
+                print("💬 Mode conversation normale")
+                conversation_context["in_reservation_mode"] = False
+                
+                if robot.tablet:
+                    html_content = create_tablet_html(
+                        title="🤔 Traitement...",
+                        message="Je réfléchis à votre question",
+                        subtitle=transcribed_text,
+                        status="🟡 Génération de la réponse...",
+                        show_mic_button=False
+                    )
+                    robot.display_text(html_content)
+                
+                # Obtenir la réponse du chatbot
+                chat_response = chat_with_api(transcribed_text)
+                
+                if not chat_response:
+                    error_msg = "Je suis désolé, je n'ai pas pu traiter votre demande. Pouvez-vous répéter, s'il vous plaît ?"
+                    print("❌ Échec de la communication avec le chat")
+                    if robot.tts:
+                        robot.say(error_msg, language=ROBOT_CONFIG["language"])
+                    if robot.tablet:
+                        html_content = create_tablet_html(
+                            title="❌ Erreur",
+                            message="Je n'ai pas pu répondre",
+                            subtitle=transcribed_text,
+                            status="🔴 Erreur",
+                            show_mic_button=True,
+                            mic_active=False
+                        )
+                        robot.display_text(html_content)
+                    continue
+                
+                print("✅ Réponse générée: '{}'".format(chat_response))
+                
+                # Faire dire la réponse au robot
+                if robot.tts:
+                    robot.say(chat_response, language=ROBOT_CONFIG["language"])
+                
+                # Afficher la réponse sur la tablette
+                if robot.tablet:
+                    html_content = create_tablet_html(
+                        title="✅ Réponse",
+                        message=chat_response,
+                        subtitle=transcribed_text,
+                        status="🟢 Réponse générée",
+                        show_mic_button=True,
+                        mic_active=False
+                    )
+                    robot.display_text(html_content)
+            
+            # Pause avant la prochaine interaction
+            time.sleep(2)
         
-        print("✅ Réponse générée: '{}'".format(chat_response))
-        
-        # 4. Faire dire la réponse au robot
-        print("\n" + "=" * 60)
-        print("ÉTAPE 4: Réponse vocale du robot")
-        print("=" * 60)
+        # Fin de la boucle
+        farewell_msg = "Merci d'avoir utilisé mes services. Au revoir !"
         if robot.tts:
-            robot.say(chat_response, language=ROBOT_CONFIG["language"])
+            robot.say(farewell_msg, language=ROBOT_CONFIG["language"])
         
-        # 5. Afficher la réponse complète sur la tablette
         if robot.tablet:
             html_content = create_tablet_html(
-                title="✅ Réponse",
-                message=chat_response,
-                subtitle=transcribed_text,
-                status="🟢 Réponse générée"
+                title="👋 Au revoir",
+                message="Merci pour votre visite",
+                status="🟢 Conversation terminée",
+                show_mic_button=False
             )
             robot.display_text(html_content)
         
         print("\n" + "=" * 60)
-        print("✅ Workflow terminé avec succès!")
-        print("=" * 60)
-        print("📝 Question: {}".format(transcribed_text))
-        print("💬 Réponse: {}".format(chat_response))
+        print("✅ Conversation terminée")
         print("=" * 60)
         
     except KeyboardInterrupt:
-        print("\n\nInterrompu par l'utilisateur")
+        print("\n\n⏹️ Conversation interrompue par l'utilisateur")
+        if robot.tts:
+            robot.say("Au revoir !", language=ROBOT_CONFIG["language"])
     except Exception as e:
-        print("\nErreur lors de l'exécution: {}".format(e))
+        print("\n❌ Erreur lors de l'exécution: {}".format(e))
+        import traceback
+        traceback.print_exc()
+        if robot.tts:
+            robot.say("Je suis désolé, une erreur s'est produite.", language=ROBOT_CONFIG["language"])
     finally:
         # Déconnecter proprement
         robot.disconnect()
