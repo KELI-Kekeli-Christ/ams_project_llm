@@ -10,6 +10,14 @@ import time
 import json
 import requests
 
+# Import optionnel pour le scan QR code via caméra
+try:
+    import cv2
+    CV2_AVAILABLE = True
+except ImportError:
+    CV2_AVAILABLE = False
+    print("⚠️ OpenCV (cv2) non disponible. Le scan QR code depuis la caméra ne fonctionnera pas.")
+
 
 
 
@@ -19,7 +27,7 @@ import requests
 # ============================================================================
 ROBOT_CONFIG = {
     "ip": "127.0.0.1",           # Adresse IP du robot (127.0.0.1 pour robot virtuel)
-    "port": 40937,                # Port du robot (9559 par défaut, 40937 pour Choregraphe)
+    "port": 35693,                # Port du robot (9559 par défaut, 40937 pour Choregraphe)
     "language": "French",         # Langue pour la synthèse vocale (French, English, etc.)
 }
 
@@ -153,6 +161,21 @@ class RobotManager:
         except Exception as e:
             print("Service AudioRecorder non disponible: {}".format(e))
             self.audio_recorder = None
+        
+        # Initialiser le service Video (pour accéder à la caméra du robot)
+        try:
+            self.video = self.session.service("ALVideoDevice")
+            print("Service Video initialisé")
+            # Construire l'URL de la caméra si possible
+            # Note: L'URL exacte dépend de la configuration du robot
+            self.camera_url = "http://{}:8080/video".format(self.ip)
+            print("URL caméra configurée: {}".format(self.camera_url))
+        except Exception as e:
+            print("Service Video non disponible (normal pour robot virtuel): {}".format(e))
+            self.video = None
+            # Pour le robot virtuel ou si le service n'est pas disponible,
+            # on peut utiliser l'URL par défaut si accessible
+            self.camera_url = "http://{}:8080/video".format(self.ip)
         
         return True
     
@@ -362,6 +385,102 @@ def is_reservation_request(text):
     
     return any(keyword in text_lower for keyword in reservation_keywords)
 
+def scan_qr_code_with_api(image_file_path=None, camera_url=None):
+    """
+    Scanne un QR code depuis une image ou via l'URL de la caméra du robot
+    
+    Args:
+        image_file_path: Chemin vers une image (optionnel)
+        camera_url: URL de la caméra du robot (optionnel)
+    
+    Returns:
+        dict: Résultat du scan QR code ou None en cas d'erreur
+    """
+    try:
+        url = "{}/scan_qr".format(API_CONFIG["base_url"])
+        
+        # Si une image est fournie, l'envoyer
+        if image_file_path and os.path.exists(image_file_path):
+            with open(image_file_path, "rb") as f:
+                response = requests.post(
+                    url,
+                    files={"file": f},
+                    timeout=API_CONFIG["timeout"]
+                )
+        elif camera_url:
+            # Capturer depuis la caméra du robot
+            if not CV2_AVAILABLE:
+                print("❌ OpenCV non disponible pour capturer depuis la caméra")
+                return None
+            
+            cap = cv2.VideoCapture(camera_url)
+            ret, frame = cap.read()
+            cap.release()
+            
+            if not ret:
+                print("❌ Impossible de capturer une image depuis la caméra: {}".format(camera_url))
+                return None
+            
+            # Sauvegarder temporairement l'image
+            temp_file = "/tmp/pepper_qr_scan.png"
+            cv2.imwrite(temp_file, frame)
+            
+            if not os.path.exists(temp_file):
+                print("❌ Impossible de sauvegarder l'image capturée")
+                return None
+            
+            with open(temp_file, "rb") as f:
+                response = requests.post(
+                    url,
+                    files={"file": f},
+                    timeout=API_CONFIG["timeout"]
+                )
+            
+            # Nettoyer le fichier temporaire
+            try:
+                if os.path.exists(temp_file):
+                    os.remove(temp_file)
+            except:
+                pass
+        else:
+            return None
+        
+        response.raise_for_status()
+        result = response.json()
+        
+        if result.get("success"):
+            print("✅ QR code scanné avec succès!")
+            return result
+        else:
+            print("❌ Erreur lors du scan: {}".format(result.get("error", "Erreur inconnue")))
+            return result
+            
+    except Exception as e:
+        print("❌ Erreur lors du scan QR code: {}".format(e))
+        return None
+
+def is_qr_scan_request(text):
+    """
+    Détermine si le texte contient une demande de scan QR code
+    
+    Args:
+        text: Texte à analyser
+    
+    Returns:
+        bool: True si c'est une demande de scan QR code
+    """
+    if not text:
+        return False
+    
+    text_lower = text.lower()
+    qr_keywords = [
+        "scanner", "scanne", "qr code", "code qr", "vérifier", "verifier",
+        "vérifie", "verifie", "mon qr", "mon code", "ma réservation",
+        "ma reservation", "check", "scan"
+    ]
+    
+    return any(keyword in text_lower for keyword in qr_keywords)
+
 
 
 
@@ -498,8 +617,8 @@ def main():
     robot.initialize_services()
     
     try:
-        # Message d'accueil
-        welcome_message = "Bonjour ! Je suis Pepper, votre assistant hôtelier. Appuyez sur le micro pour commencer à me parler."
+        # Message d'accueil avec présentation des fonctionnalités
+        welcome_message = "Bonjour ! Je suis Pepper, votre assistant hôtelier. Je peux vous aider à réserver une chambre, répondre à vos questions, ou vérifier votre réservation en scannant votre QR code. Appuyez sur le micro pour commencer à me parler."
         if robot.tts:
             robot.say(welcome_message, language=ROBOT_CONFIG["language"])
         
@@ -777,6 +896,89 @@ def main():
                         conversation_context["collected_info"] = {}
                         continue
                 
+            elif is_qr_scan_request(transcribed_text):
+                # Mode scan QR code
+                print("📷 Détection d'une demande de scan QR code")
+                
+                if robot.tablet:
+                    html_content = create_tablet_html(
+                        title="📷 Scan QR Code",
+                        message="Préparez votre QR code",
+                        subtitle=transcribed_text,
+                        status="🟡 Scan en cours...",
+                        show_mic_button=False
+                    )
+                    robot.display_text(html_content)
+                
+                # Demander au client de présenter le QR code
+                if robot.tts:
+                    robot.say("Présentez votre QR code devant ma caméra, s'il vous plaît.", language=ROBOT_CONFIG["language"])
+                
+                time.sleep(2)  # Donner le temps au client de positionner le QR code
+                
+                # Scanner le QR code
+                print("📷 Scan du QR code en cours...")
+                qr_result = scan_qr_code_with_api(camera_url=robot.camera_url)
+                
+                if qr_result and qr_result.get("success"):
+                    # QR code valide scanné
+                    reservation = qr_result.get("reservation", {})
+                    client = qr_result.get("client", {})
+                    qr_id = qr_result.get("qr_id", "N/A")
+                    
+                    # Construire le message de confirmation
+                    client_name = "{} {}".format(client.get("prenom", ""), client.get("nom", "")).strip()
+                    if not client_name:
+                        client_name = "Client"
+                    
+                    confirmation_msg = "Parfait ! J'ai vérifié votre QR code. Bonjour {}, votre réservation {} est confirmée. Type de chambre: {}, arrivée le {}, départ le {}. Au plaisir de vous accueillir !".format(
+                        client_name,
+                        qr_id,
+                        reservation.get("type_chambre", "N/A"),
+                        reservation.get("date_arrivee", "N/A"),
+                        reservation.get("date_depart", "N/A")
+                    )
+                    
+                    if robot.tts:
+                        robot.say(confirmation_msg, language=ROBOT_CONFIG["language"])
+                    
+                    if robot.tablet:
+                        html_content = create_tablet_html(
+                            title="✅ QR Code Validé",
+                            message="Réservation confirmée",
+                            subtitle="ID: {}".format(qr_id),
+                            status="🟢 Validé",
+                            show_mic_button=True,
+                            mic_active=False
+                        )
+                        robot.display_text(html_content)
+                    
+                    print("✅ QR code validé avec succès!")
+                    print("   Client: {}".format(client_name))
+                    print("   Réservation: {}".format(qr_id))
+                    time.sleep(3)
+                else:
+                    # Erreur lors du scan
+                    error_msg = "Je suis désolé, je n'ai pas pu scanner votre QR code. Pouvez-vous le repositionner devant ma caméra, s'il vous plaît ?"
+                    
+                    if robot.tts:
+                        robot.say(error_msg, language=ROBOT_CONFIG["language"])
+                    
+                    if robot.tablet:
+                        error_detail = qr_result.get("error", "QR code non détecté") if qr_result else "QR code non détecté"
+                        html_content = create_tablet_html(
+                            title="❌ Erreur",
+                            message="QR code non détecté",
+                            subtitle=error_detail[:100],
+                            status="🔴 Erreur",
+                            show_mic_button=True,
+                            mic_active=False
+                        )
+                        robot.display_text(html_content)
+                    
+                    print("❌ Échec du scan QR code")
+                    time.sleep(2)
+            
             else:
                 # Mode conversation normale (questions/réponses)
                 print("💬 Mode conversation normale")
