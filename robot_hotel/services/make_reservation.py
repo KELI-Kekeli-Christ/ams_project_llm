@@ -1,6 +1,7 @@
 import json
 import requests
 from openai import OpenAI
+from services.location import get_heure_date
 import os
 
 # Configuration du client OpenAI via Hugging Face
@@ -16,23 +17,38 @@ RESERVATION_API_URL = os.getenv("RESERVATION_API_URL", "http://localhost:8000")
 def extract_reservation_info(transcript: str) -> dict:
     """
     Utilise le chat pour extraire les informations de réservation depuis le transcript de l'utilisateur.
+    La date et l'heure actuelles sont utilisées pour convertir les dates relatives en dates absolues.
     Retourne un dictionnaire avec les informations structurées.
     """
-    system_prompt = """Tu es un assistant spécialisé dans l'extraction d'informations de réservation d'hôtel.
+    # Récupérer la date et l'heure actuelles pour aider à l'extraction
+    current_datetime = get_heure_date()
+    
+    system_prompt = f"""Tu es un assistant spécialisé dans l'extraction d'informations de réservation d'hôtel.
 À partir du transcript d'une conversation avec un client, tu dois extraire les informations suivantes et les retourner UNIQUEMENT au format JSON valide, sans texte supplémentaire :
-{
+{{
     "id_client": "C-XXX" ou "inconnu" si non mentionné,
     "nom": "nom du client" ou "inconnu" si non mentionné,
     "prenom": "prénom du client" ou "inconnu" si non mentionné,
     "type_chambre": "simple", "double", "suite" ou "inconnu" si non mentionné,
     "date_arrivee": "YYYY-MM-DD" ou "inconnu" si non mentionné,
     "date_depart": "YYYY-MM-DD" ou "inconnu" si non mentionné
-}
+}}
+
+INFORMATION TEMPORELLE ACTUELLE :
+{current_datetime}
 
 RÈGLES IMPORTANTES :
 - Le NOM et le PRÉNOM sont OBLIGATOIRES. Si le transcript ne les mentionne pas clairement, essaie de les déduire du contexte ou utilise "inconnu".
 - Pour le type de chambre : accepte "simple", "double", "suite" ou équivalents (ex: "chambre simple", "chambre double", "suite").
-- Pour les dates : utilise le format YYYY-MM-DD. Si seulement le jour est mentionné, assume le mois et l'année actuels.
+- Pour les dates : utilise le format YYYY-MM-DD.
+  * Si une date absolue est mentionnée (ex: "25 décembre", "30/12/2025"), utilise-la directement.
+  * Si une date relative est mentionnée (ex: "demain", "dans 3 jours", "la semaine prochaine"), calcule la date absolue en te basant sur la date actuelle fournie ci-dessus.
+  * Si seulement le jour est mentionné sans année, assume le mois et l'année actuels.
+  * Exemples de conversion :
+    - "demain" → date actuelle + 1 jour
+    - "dans 3 jours" → date actuelle + 3 jours
+    - "la semaine prochaine" → date actuelle + 7 jours
+    - "lundi prochain" → prochain lundi à partir de la date actuelle
 - L'id_client est optionnel et peut être "inconnu" si le client est nouveau.
 
 IMPORTANT : Retourne UNIQUEMENT le JSON, sans texte avant ou après."""

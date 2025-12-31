@@ -1,0 +1,988 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage{geometry}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+
+% Configuration de la page
+\geometry{margin=2.5cm}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\leftmark}
+\fancyhead[R]{Robot Hotel - Cahier des Charges}
+\fancyfoot[C]{\thepage}
+
+% Configuration des liens
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,      
+    urlcolor=cyan,
+    pdftitle={Cahier des Charges - Robot Hotel},
+}
+
+% Configuration des listes
+\setlist[itemize]{leftmargin=*,itemsep=0.1cm}
+\setlist[enumerate]{leftmargin=*,itemsep=0.1cm}
+
+% Configuration des titres
+\titleformat{\section}
+{\Large\bfseries\color{blue!70!black}}
+{}{0em}{}[\titlerule]
+
+\titleformat{\subsection}
+{\large\bfseries\color{blue!60!black}}
+{}{0em}{}
+
+% Informations du document
+\title{
+    \vspace{2cm}
+    {\Huge\bfseries Cahier des Charges}\\
+    \vspace{0.5cm}
+    {\Large Projet Robot Hotel}\\
+    \vspace{0.3cm}
+    {\large Système Intelligent d'Accueil et de Gestion Hôtelière}
+    \vspace{1.5cm}
+}
+
+\author{
+    Équipe de Développement\\
+    Université d'Avignon
+}
+
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{empty}
+\newpage
+
+\tableofcontents
+\newpage
+
+% ============================================================================
+% SECTION 1: CONTEXTE ET OBJECTIFS
+% ============================================================================
+
+\section{Contexte et Objectifs du Projet}
+
+\subsection{Contexte}
+
+Le secteur hôtelier moderne recherche constamment des solutions innovantes pour améliorer l'expérience client tout en optimisant l'efficacité opérationnelle. L'intelligence artificielle et la robotique offrent des opportunités significatives pour transformer l'accueil et les services clients dans les établissements hôteliers.
+
+Le projet \textbf{Robot Hotel} s'inscrit dans cette dynamique d'innovation en développant un système intelligent d'accueil et de gestion hôtelière basé sur un robot humanoïde Pepper. Ce système vise à :
+
+\begin{itemize}
+    \item Améliorer l'expérience d'accueil des clients grâce à une interaction naturelle et intuitive
+    \item Automatiser certaines tâches de réception (reconnaissance des clients, gestion des réservations)
+    \item Offrir un service d'information 24/7 sur les services et équipements de l'hôtel
+    \item Faciliter la gestion des réservations par traitement automatique de la parole
+    \item Tester l'acceptabilité et l'ergonomie d'un robot d'accueil dans un contexte hôtelier réel
+\end{itemize}
+
+Le développement de ce système répond aux besoins identifiés suivants :
+
+\begin{enumerate}
+    \item \textbf{Personnalisation de l'accueil} : Reconnaissance faciale pour identifier les clients récurrents et personnaliser le service
+    \item \textbf{Accessibilité multilingue} : Support de plusieurs langues grâce à des modèles d'IA avancés
+    \item \textbf{Efficacité opérationnelle} : Automatisation des tâches répétitives (réponses aux questions fréquentes, gestion basique des réservations)
+    \item \textbf{Intégration technologique} : Interface moderne permettant une gestion administrative centralisée
+\end{enumerate}
+
+\subsection{Objectifs}
+
+Les objectifs principaux du projet sont :
+
+\subsubsection{Objectifs Fonctionnels}
+
+\begin{itemize}
+    \item Développer un système de \textbf{reconnaissance faciale} permettant d'identifier les clients et de personnaliser leur accueil
+    \item Implémenter un \textbf{chatbot intelligent} basé sur Llama 3 capable de répondre aux questions sur l'hôtel avec un contexte RAG (Retrieval-Augmented Generation)
+    \item Créer un système de \textbf{transcription et traitement de la parole} utilisant Whisper pour permettre des interactions vocales naturelles
+    \item Développer une \textbf{API REST complète} (Flask) exposant toutes les fonctionnalités du système
+    \item Créer une \textbf{interface d'administration web} (Streamlit) pour gérer le système et tester les fonctionnalités
+    \item Intégrer un système de \textbf{gestion de réservations} avec extraction automatique d'informations depuis des interactions vocales
+\end{itemize}
+
+\subsubsection{Objectifs Techniques}
+
+\begin{itemize}
+    \item Assurer une \textbf{architecture modulaire} permettant l'évolution et la maintenance facilitée
+    \item Garantir des \textbf{performances optimales} pour le traitement en temps réel (streaming vidéo, détection faciale)
+    \item Assurer la \textbf{compatibilité} avec le robot Pepper (SoftBank Robotics)
+    \item Implémenter une \textbf{documentation API complète} (Swagger/OpenAPI)
+\end{itemize}
+
+\subsubsection{Objectifs de Validation}
+
+\begin{itemize}
+    \item Tester l'application avec des utilisateurs réels pour valider les choix ergonomiques
+    \item Évaluer la satisfaction des utilisateurs face à l'interaction avec un robot d'accueil
+    \item Mesurer l'efficacité des différentes fonctionnalités (taux de reconnaissance, précision des réponses, temps de réponse)
+    \item Identifier les points d'amélioration pour les versions futures
+\end{itemize}
+
+% ============================================================================
+% SECTION 2: PÉRIMÈTRE DU PROJET
+% ============================================================================
+
+\section{Périmètre du Projet}
+
+\subsection{Fonctionnalités Attendues}
+
+Le système Robot Hotel comprend les fonctionnalités principales suivantes :
+
+\subsubsection{Fonctionnalités de Reconnaissance Faciale}
+
+\begin{itemize}
+    \item \textbf{Enregistrement de personnes} : Enregistrement de nouveaux clients dans la base de données via upload d'image
+    \item \textbf{Détection en temps réel} : Détection de visages dans des images ou flux vidéo en temps réel
+    \item \textbf{Reconnaissance} : Identification des personnes enregistrées avec un niveau de confiance
+    \item \textbf{Gestion de la base de données} : Liste, modification et suppression des personnes enregistrées
+    \item \textbf{Streaming vidéo} : Support du streaming vidéo depuis webcam ou robot Pepper pour la détection en continu
+\end{itemize}
+
+\subsubsection{Fonctionnalités de Chat Intelligent}
+
+\begin{itemize}
+    \item \textbf{Chatbot conversationnel} : Interaction en langage naturel avec le modèle Llama 3.1-8B-Instruct
+    \item \textbf{Contexte RAG} : Utilisation d'un système RAG pour fournir des réponses précises basées sur la documentation de l'hôtel
+    \item \textbf{Connaissance temporelle} : Intégration de la date et de l'heure actuelles dans le contexte du chatbot, permettant de répondre correctement aux questions temporelles (ex: "Quel jour sommes-nous ?", "Quelle est la date d'aujourd'hui ?") et de gérer les références temporelles relatives (ex: "demain", "dans 3 jours", "la semaine prochaine")
+    \item \textbf{Support multilingue} : Capacité à répondre en plusieurs langues (français, anglais, etc.)
+    \item \textbf{Réponses contextuelles} : Réponses adaptées aux questions sur les services, équipements et informations pratiques de l'hôtel
+    \item \textbf{Utilité de la date/heure} : La fonction \texttt{get\_heure\_date()} est intégrée dans le prompt système du chatbot, lui fournissant systématiquement la date et l'heure actuelles du système au format "Il est HH:MM le DD Mois AAAA". Cette information permet au chatbot de :
+    \begin{itemize}
+        \item Répondre avec précision aux questions sur la date et l'heure actuelles
+        \item Interpréter correctement les références temporelles relatives dans les conversations
+        \item Contextualiser ses réponses en fonction du moment de la journée
+        \item Aider à l'extraction correcte des dates dans les demandes de réservation
+    \end{itemize}
+\end{itemize}
+
+\subsubsection{Fonctionnalités Audio et Transcription}
+
+\begin{itemize}
+    \item \textbf{Transcription audio} : Transcription automatique de fichiers audio (WAV, MP3) en texte avec détection de langue
+    \item \textbf{Enregistrement vocal} : Enregistrement audio depuis microphone avec détection automatique de silence
+    \item \textbf{Traitement de la parole} : Extraction d'informations structurées depuis des transcriptions (notamment pour les réservations)
+\end{itemize}
+
+\subsubsection{Fonctionnalités de Gestion de Réservations}
+
+\begin{itemize}
+    \item \textbf{Création depuis audio} : Création de réservations depuis des fichiers audio contenant une demande
+    \item \textbf{Extraction automatique} : Extraction intelligente des informations (nom, prénom, dates, type de chambre) depuis le transcript, avec capacité à convertir les dates relatives (ex: "demain", "dans 3 jours") en dates absolues grâce à la connaissance de la date actuelle du système
+    \item \textbf{Intégration API} : Communication avec une API FastAPI de gestion de réservations
+    \item \textbf{Génération de QR codes} : Génération automatique de QR codes pour les réservations (via l'API FastAPI)
+\end{itemize}
+
+\subsubsection{Fonctionnalités d'Administration}
+
+\begin{itemize}
+    \item \textbf{Interface web d'administration} : Interface Streamlit complète pour gérer toutes les fonctionnalités
+    \item \textbf{Gestion des visages} : Interface pour enregistrer, lister, supprimer des personnes dans la base de données
+    \item \textbf{Monitoring} : Visualisation en temps réel des détections faciales et des interactions
+    \item \textbf{Test des fonctionnalités} : Outils de test intégrés pour valider chaque composant du système
+\end{itemize}
+
+\subsubsection{Fonctionnalités Système}
+
+\begin{itemize}
+    \item \textbf{API REST complète} : API Flask exposant tous les services avec documentation Swagger
+    \item \textbf{Service date/heure} : Fonction \texttt{get\_heure\_date()} qui récupère la date et l'heure actuelles du système au format lisible ("Il est HH:MM le DD Mois AAAA"), intégrée dans le contexte du chatbot pour lui permettre de répondre correctement aux questions temporelles
+    \item \textbf{Intégration temporelle} : La date et l'heure sont automatiquement fournies au chatbot dans le prompt système, lui permettant de :
+    \begin{itemize}
+        \item Répondre précisément aux questions sur la date et l'heure actuelles
+        \item Calculer correctement les dates relatives (demain, dans X jours, etc.)
+        \item Contextualiser les réponses temporelles (ex: "le restaurant ouvre aujourd'hui à 12h")
+        \item Extraire correctement les dates dans les demandes de réservation
+    \end{itemize}
+    \item \textbf{Gestion des erreurs} : Gestion robuste des erreurs avec messages informatifs
+    \item \textbf{Logs et monitoring} : Système de logs pour le débogage et le suivi
+\end{itemize}
+
+\subsection{Technologies Utilisées}
+
+\subsubsection{Langages de Programmation}
+
+\begin{itemize}
+    \item \textbf{Python 3.12+} : Langage principal pour tout le développement
+    \item \textbf{Bash} : Scripts d'automatisation et de déploiement
+\end{itemize}
+
+\subsubsection{Frameworks et Bibliothèques}
+
+\begin{itemize}
+    \item \textbf{Flask} : Framework web pour l'API REST principale
+    \item \textbf{FastAPI} : Framework pour l'API de gestion de réservations
+    \item \textbf{Streamlit} : Framework pour l'interface d'administration web
+    \item \textbf{Flasgger} : Intégration Swagger pour la documentation API Flask
+    \item \textbf{Uvicorn} : Serveur ASGI pour FastAPI
+\end{itemize}
+
+\subsubsection{Intelligence Artificielle et Machine Learning}
+
+\begin{itemize}
+    \item \textbf{Llama 3.1-8B-Instruct} : Modèle de langage pour le chatbot (via Hugging Face)
+    \item \textbf{OpenAI API (Hugging Face Router)} : Accès au modèle Llama via Hugging Face
+    \item \textbf{Whisper (OpenAI)} : Modèle de transcription audio (version medium)
+    \item \textbf{YOLOv8 (Ultralytics)} : Modèle de détection d'objets pour détecter les personnes
+    \item \textbf{face\_recognition} : Bibliothèque pour la reconnaissance faciale basée sur dlib
+    \item \textbf{OpenCV (cv2)} : Traitement d'images et vidéo
+    \item \textbf{NumPy} : Calculs numériques
+\end{itemize}
+
+\subsubsection{RAG (Retrieval-Augmented Generation)}
+
+\begin{itemize}
+    \item \textbf{LlamaIndex} : Framework pour la construction d'indices vectoriels
+    \item \textbf{HuggingFace Embeddings} : Modèle d'embedding (sentence-transformers/all-MiniLM-L6-v2)
+    \item \textbf{Vector Store} : Stockage vectoriel pour la recherche sémantique dans la documentation
+\end{itemize}
+
+\subsubsection{Bases de Données et Stockage}
+
+\begin{itemize}
+    \item \textbf{Pickle} : Sérialisation pour la base de données des visages (friends.pkl)
+    \item \textbf{SQLite} : Base de données pour les réservations (via FastAPI)
+    \item \textbf{SQLAlchemy} : ORM pour la gestion de la base de données
+\end{itemize}
+
+\subsubsection{Infrastructure et Déploiement}
+
+\begin{itemize}
+    \item \textbf{Environnements virtuels Python} : Isolation des dépendances
+    \item \textbf{Git} : Contrôle de version
+    \item \textbf{Docker} (optionnel) : Conteneurisation possible
+\end{itemize}
+
+\subsubsection{Matériel}
+
+\begin{itemize}
+    \item \textbf{Robot Pepper} (SoftBank Robotics) : Robot humanoïde pour l'interaction physique
+    \item \textbf{Webcam} : Pour la détection faciale locale
+    \item \textbf{Microphone} : Pour l'enregistrement audio
+\end{itemize}
+
+% ============================================================================
+% SECTION 3: PUBLIC CIBLE
+% ============================================================================
+
+\section{Public Cible}
+
+\subsection{Profil des Utilisateurs}
+
+\subsubsection{Utilisateurs Finaux (Clients de l'Hôtel)}
+
+\begin{itemize}
+    \item \textbf{Âge} : 25-65 ans
+    \item \textbf{Profil} : Clients d'un hôtel (voyageurs d'affaires, touristes, familles)
+    \item \textbf{Compétences techniques} : Faibles à moyennes compétences en informatique
+    \item \textbf{Habitudes} : Utilisation quotidienne de smartphones et d'applications mobiles
+    \item \textbf{Attentes} : Service rapide, professionnel et personnalisé
+    \item \textbf{Langues} : Principalement français, mais aussi anglais, espagnol, allemand
+\end{itemize}
+
+\subsubsection{Utilisateurs Administrateurs (Personnel de l'Hôtel)}
+
+\begin{itemize}
+    \item \textbf{Profil} : Personnel de réception, gestionnaires, administrateurs système
+    \item \textbf{Compétences techniques} : Moyennes à élevées
+    \item \textbf{Rôle} : Configuration, gestion et maintenance du système
+    \item \textbf{Besoins} : Interface intuitive pour gérer les données et surveiller le système
+\end{itemize}
+
+\subsection{Nombre d'Utilisateurs pour les Tests}
+
+Pour valider le système, les tests utilisateurs seront organisés en plusieurs phases :
+
+\subsubsection{Phase 1 : Tests Exploratoires (10-15 utilisateurs)}
+
+\begin{itemize}
+    \item Objectif : Identifier les problèmes majeurs d'ergonomie et de fonctionnalité
+    \item Profil : Utilisateurs variés (différents âges, niveaux techniques)
+    \item Durée : 30-45 minutes par utilisateur
+    \item Focus : Première impression, navigation de base, compréhension des fonctionnalités
+\end{itemize}
+
+\subsubsection{Phase 2 : Tests Fonctionnels (20-30 utilisateurs)}
+
+\begin{itemize}
+    \item Objectif : Valider l'efficacité de chaque fonctionnalité principale
+    \item Profil : Utilisateurs représentatifs du public cible
+    \item Durée : 45-60 minutes par utilisateur
+    \item Focus : Taux de réussite des tâches, temps d'exécution, satisfaction
+\end{itemize}
+
+\subsubsection{Phase 3 : Tests en Conditions Réelles (50+ utilisateurs)}
+
+\begin{itemize}
+    \item Objectif : Validation finale avant déploiement
+    \item Profil : Clients réels de l'hôtel
+    \item Durée : Usage naturel sur plusieurs jours/semaines
+    \item Focus : Acceptabilité, performance globale, problèmes récurrents
+\end{itemize}
+
+% ============================================================================
+% SECTION 4: SCÉNARIOS DE TESTS UTILISATEURS
+% ============================================================================
+
+\section{Scénarios de Tests Utilisateurs}
+
+\subsection{Objectifs des Tests Utilisateurs}
+
+Les tests utilisateurs visent à :
+
+\begin{enumerate}
+    \item \textbf{Valider l'intuitivité} : Vérifier que les utilisateurs comprennent comment interagir avec le système sans formation préalable
+    \item \textbf{Mesurer l'efficacité} : Évaluer si les utilisateurs peuvent accomplir les tâches principales avec succès
+    \item \textbf{Évaluer la satisfaction} : Recueillir les impressions et le niveau de satisfaction des utilisateurs
+    \item \textbf{Identifier les problèmes} : Détecter les points de friction, erreurs fréquentes et besoins non couverts
+    \item \textbf{Optimiser l'expérience} : Collecter des suggestions d'amélioration pour l'interface et les fonctionnalités
+\end{enumerate}
+
+\subsection{Méthodologie de Tests}
+
+\subsubsection{Type de Tests}
+
+Les tests seront principalement \textbf{modérés} (en présence d'un facilitateur) pour :
+
+\begin{itemize}
+    \item Observer le comportement naturel des utilisateurs
+    \item Poser des questions de clarification en temps réel
+    \item Recueillir des retours immédiats
+    \item Gérer les situations problématiques
+\end{itemize}
+
+Des tests \textbf{non modérés} pourront être organisés en phase 3 pour :
+
+\begin{itemize}
+    \item Obtenir un volume plus important de données
+    \item Tester l'utilisation en autonomie complète
+    \item Évaluer la courbe d'apprentissage sur plusieurs utilisations
+\end{itemize}
+
+\subsubsection{Environnement de Test}
+
+\begin{itemize}
+    \item \textbf{Contexte} : Environnement contrôlé simulant un hall d'hôtel ou environnement réel si possible
+    \item \textbf{Équipement} : Robot Pepper configuré, interface d'administration accessible, système de logging activé
+    \item \textbf{Documentation} : Consentement éclairé, guide de test, questionnaires pré/post-test
+\end{itemize}
+
+\subsection{Scénarios de Tests}
+
+\subsubsection{Scénario 1 : Reconnaissance et Accueil Personnalisé}
+
+\textbf{Objectif} : Tester la fonctionnalité de reconnaissance faciale et l'accueil personnalisé.
+
+\textbf{Tâches} :
+\begin{enumerate}
+    \item Enregistrer son visage dans le système (via l'interface admin)
+    \item Se placer devant le robot/caméra
+    \item Vérifier que le robot identifie correctement la personne
+    \item Recevoir un message d'accueil personnalisé
+\end{enumerate}
+
+\textbf{Critères de réussite} :
+\begin{itemize}
+    \item La personne est correctement identifiée dans 80\% des cas
+    \item Le temps de détection est inférieur à 3 secondes
+    \item L'accueil personnalisé est adapté et naturel
+\end{itemize}
+
+\subsubsection{Scénario 2 : Interaction Conversationnelle}
+
+\textbf{Objectif} : Tester le chatbot et sa capacité à répondre aux questions sur l'hôtel.
+
+\textbf{Tâches} :
+\begin{enumerate}
+    \item Poser une question simple sur les services (ex: "Quels sont les horaires du restaurant ?")
+    \item Poser une question sur les équipements (ex: "Où se trouve la piscine ?")
+    \item Poser une question complexe nécessitant plusieurs informations (ex: "Quels sont les services disponibles 24h/24 ?")
+    \item Poser une question sur la date et l'heure (ex: "Quel jour sommes-nous ?", "Quelle heure est-il ?")
+    \item Poser une question avec référence temporelle relative (ex: "Quels sont les horaires du restaurant demain ?")
+    \item Tester une question en anglais
+\end{enumerate}
+
+\textbf{Critères de réussite} :
+\begin{itemize}
+    \item Taux de réponses pertinentes > 85\%
+    \item Réponses correctes aux questions temporelles dans 95\% des cas
+    \item Temps de réponse < 5 secondes
+    \item Les réponses sont précises et basées sur la documentation
+    \item Les réponses temporelles sont cohérentes avec la date et l'heure réelles du système
+\end{itemize}
+
+\subsubsection{Scénario 3 : Création de Réservation par Voix}
+
+\textbf{Objectif} : Tester la création de réservation via interaction vocale.
+
+\textbf{Tâches} :
+\begin{enumerate}
+    \item Enregistrer une demande de réservation vocale avec date absolue (ex: "Je voudrais réserver une chambre double pour Jean Dupont du 25 au 30 décembre")
+    \item Enregistrer une demande avec date relative (ex: "Je voudrais réserver pour demain" ou "dans 3 jours")
+    \item Vérifier que l'audio est correctement transcrit
+    \item Vérifier que les informations sont extraites (nom, dates, type de chambre)
+    \item Vérifier que les dates relatives sont correctement converties en dates absolues grâce à la connaissance de la date actuelle
+    \item Confirmer la création de la réservation
+    \item Vérifier le QR code généré
+\end{enumerate}
+
+\textbf{Critères de réussite} :
+\begin{itemize}
+    \item Taux de transcription correcte > 90\%
+    \item Extraction correcte des informations dans 85\% des cas
+    \item Conversion correcte des dates relatives en dates absolues dans 90\% des cas
+    \item Temps total de traitement < 30 secondes
+\end{itemize}
+
+\subsubsection{Scénario 4 : Gestion Administrative}
+
+\textbf{Objectif} : Tester l'interface d'administration Streamlit.
+
+\textbf{Tâches} :
+\begin{enumerate}
+    \item Accéder à l'interface d'administration
+    \item Enregistrer une nouvelle personne dans la base de données
+    \item Lister toutes les personnes enregistrées
+    \item Tester la détection faciale sur une image de test
+    \item Démarrer et arrêter le streaming vidéo
+    \item Consulter les logs et statistiques
+\end{enumerate}
+
+\textbf{Critères de réussite} :
+\begin{itemize}
+    \item Navigation intuitive sans formation
+    \item Toutes les opérations peuvent être effectuées en moins de 2 minutes
+    \item L'interface fournit des retours clairs sur les actions
+\end{itemize}
+
+\subsubsection{Scénario 5 : Intégration Robot Pepper}
+
+\textbf{Objectif} : Tester l'intégration complète avec le robot Pepper.
+
+\textbf{Tâches} :
+\begin{enumerate}
+    \item Démarrer le système complet
+    \item Effectuer une reconnaissance faciale via Pepper
+    \item Interagir vocalement avec Pepper
+    \item Créer une réservation via interaction avec Pepper
+    \item Vérifier la synchronisation entre Pepper et l'API
+\end{enumerate}
+
+\textbf{Critères de réussite} :
+\begin{itemize}
+    \item Pas de latence excessive dans les interactions
+    \item Communication fiable entre Pepper et l'API
+    \item Expérience utilisateur fluide et naturelle
+\end{itemize}
+
+% ============================================================================
+% SECTION 5: CRITÈRES DE RÉUSSITE ET ÉVALUATIONS
+% ============================================================================
+
+\section{Critères de Réussite et Évaluations}
+
+\subsection{Indicateurs de Performance (KPI)}
+
+\subsubsection{Performances Techniques}
+
+\begin{itemize}
+    \item \textbf{Taux de reconnaissance faciale} : $\geq$ 85\% de précision
+    \item \textbf{Temps de détection faciale} : $\leq$ 3 secondes
+    \item \textbf{Taux de transcription audio} : $\geq$ 90\% de mots corrects (WER)
+    \item \textbf{Temps de réponse API} : $\leq$ 2 secondes pour 95\% des requêtes
+    \item \textbf{Disponibilité du système} : $\geq$ 95\% de temps de fonctionnement
+\end{itemize}
+
+\subsubsection{Performances Utilisateur}
+
+\begin{itemize}
+    \item \textbf{Taux de réussite des tâches} : $\geq$ 80\% pour les tâches principales
+    \item \textbf{Temps moyen d'accomplissement} :
+    \begin{itemize}
+        \item Reconnaissance faciale : $\leq$ 10 secondes
+        \item Création de réservation : $\leq$ 2 minutes
+        \item Question au chatbot : $\leq$ 30 secondes
+    \end{itemize}
+    \item \textbf{Taux d'abandon} : $\leq$ 15\% des utilisateurs
+    \item \textbf{Nombre d'erreurs par utilisateur} : $\leq$ 2 erreurs par session
+\end{itemize}
+
+\subsubsection{Satisfaction Utilisateur}
+
+\begin{itemize}
+    \item \textbf{Score de satisfaction global} : $\geq$ 4.0/5.0
+    \item \textbf{Net Promoter Score (NPS)} : $\geq$ 50
+    \item \textbf{Intention d'utilisation future} : $\geq$ 70\% des utilisateurs
+    \item \textbf{Recommandation à d'autres} : $\geq$ 75\% des utilisateurs
+\end{itemize}
+
+\subsubsection{Performance du Chatbot}
+
+\begin{itemize}
+    \item \textbf{Pertinence des réponses} : $\geq$ 85\% de réponses jugées pertinentes
+    \item \textbf{Utilisation du contexte RAG} : $\geq$ 80\% des réponses utilisent le contexte documentaire
+    \item \textbf{Compréhension des questions} : $\geq$ 90\% de questions correctement interprétées
+\end{itemize}
+
+\subsection{Feedback des Utilisateurs}
+
+\subsubsection{Méthodes de Collecte}
+
+\begin{enumerate}
+    \item \textbf{Questionnaires structurés} :
+    \begin{itemize}
+        \item Questionnaire pré-test : Profil utilisateur, attentes
+        \item Questionnaire post-test : Satisfaction, impressions, suggestions
+        \item Utilisation d'échelles de Likert (1-5) pour quantifier les réponses
+    \end{itemize}
+    
+    \item \textbf{Entretiens semi-directifs} :
+    \begin{itemize}
+        \item Entretiens individuels de 15-20 minutes après les tests
+        \item Questions ouvertes sur l'expérience globale
+        \item Focus sur les points positifs et négatifs
+    \end{itemize}
+    
+    \item \textbf{Observation directe} :
+    \begin{itemize}
+        \item Enregistrement vidéo des sessions (avec consentement)
+        \item Notes du facilitateur sur les comportements, hésitations, erreurs
+        \item Analyse des logs système pour identifier les problèmes techniques
+    \end{itemize}
+    
+    \item \textbf{Métriques comportementales} :
+    \begin{itemize}
+        \item Temps passé sur chaque fonctionnalité
+        \item Nombre de tentatives avant succès
+        \item Parcours de navigation dans l'interface
+        \item Taux d'utilisation des différentes fonctionnalités
+    \end{itemize}
+\end{enumerate}
+
+\subsubsection{Analyse des Retours}
+
+\begin{itemize}
+    \item \textbf{Analyse quantitative} : Statistiques descriptives sur les questionnaires, calcul des KPI
+    \item \textbf{Analyse qualitative} : Codage thématique des entretiens, identification des patterns
+    \item \textbf{Analyse comparative} : Comparaison entre groupes d'utilisateurs (âge, compétences techniques)
+    \item \textbf{Priorisation} : Identification des problèmes critiques nécessitant une correction immédiate
+\end{itemize}
+
+\subsubsection{Questionnaire Type}
+
+Un exemple de questions du questionnaire post-test :
+
+\begin{enumerate}
+    \item Sur une échelle de 1 à 5, comment évaluez-vous la facilité d'utilisation du système ?
+    \item Le robot a-t-il correctement identifié votre visage ? (Oui/Non/Partiellement)
+    \item Les réponses du chatbot étaient-elles pertinentes ? (1-5)
+    \item Recommanderiez-vous ce système à un autre hôtel ? (1-5)
+    \item Quelle fonctionnalité avez-vous préférée ?
+    \item Quelle amélioration suggéreriez-vous ?
+\end{enumerate}
+
+% ============================================================================
+% SECTION 6: CONTRAINTES ET RISQUES
+% ============================================================================
+
+\section{Contraintes et Risques}
+
+\subsection{Contraintes Techniques}
+
+\subsubsection{Contraintes Matérielles}
+
+\begin{itemize}
+    \item \textbf{Robot Pepper} : Disponibilité limitée, nécessité de réservation de créneaux
+    \item \textbf{Ressources computationnelles} : Charge CPU/GPU importante pour les modèles d'IA (Whisper, YOLO, Llama)
+    \item \textbf{Stockage} : Espace nécessaire pour les modèles ML (plusieurs Go)
+    \item \textbf{Réseau} : Besoin d'une connexion stable pour l'API Hugging Face
+\end{itemize}
+
+\subsubsection{Contraintes Logicielles}
+
+\begin{itemize}
+    \item \textbf{Compatibilité Python} : Nécessité de Python 3.12+
+    \item \textbf{Dépendances} : Nombreuses bibliothèques avec des versions spécifiques
+    \item \textbf{Environnements virtuels} : Nécessité de maintenir plusieurs environnements séparés (Flask, FastAPI)
+    \item \textbf{Compatibilité OS} : Développement principalement sous Linux, tests nécessaires sur autres OS
+\end{itemize}
+
+\subsubsection{Contraintes de Performance}
+
+\begin{itemize}
+    \item \textbf{Temps de réponse} : Latence acceptable pour l'interaction en temps réel
+    \item \textbf{Concurrence} : Gestion de plusieurs utilisateurs simultanés
+    \item \textbf{Mémoire} : Limitation de la mémoire GPU pour Whisper (nécessité d'utiliser CPU si nécessaire)
+\end{itemize}
+
+\subsubsection{Contraintes de Sécurité}
+
+\begin{itemize}
+    \item \textbf{Données personnelles} : Respect du RGPD pour les données biométriques (visages)
+    \item \textbf{API Keys} : Protection des clés API (Hugging Face)
+    \item \textbf{Accès réseau} : Sécurisation de l'API et de l'interface d'administration
+\end{itemize}
+
+\subsection{Risques Potentiels}
+
+\subsubsection{Risques Techniques}
+
+\begin{itemize}
+    \item \textbf{Performance des modèles d'IA} : Risque que les modèles ne répondent pas aux attentes de précision
+    \item \textbf{Intégration Pepper} : Problèmes de compatibilité ou de communication avec le robot
+    \item \textbf{Bugs critiques} : Erreurs pouvant bloquer le système en production
+    \item \textbf{Problèmes de déploiement} : Difficultés à installer ou configurer le système
+\end{itemize}
+
+\subsubsection{Mesures d'Atténuation}
+
+\begin{itemize}
+    \item Tests approfondis avant chaque déploiement
+    \item Documentation complète des procédures d'installation
+    \item Système de logs détaillé pour le débogage
+    \item Mode dégradé en cas de panne (fallback sur solutions manuelles)
+\end{itemize}
+
+\subsubsection{Risques Utilisateur}
+
+\begin{itemize}
+    \item \textbf{Acceptabilité} : Risque que les utilisateurs rejettent l'interaction avec un robot
+    \item \textbf{Complexité perçue} : Interface jugée trop complexe
+    \item \textbf{Fiabilité perçue} : Manque de confiance dans la précision du système
+\end{itemize}
+
+\subsubsection{Mesures d'Atténuation}
+
+\begin{itemize}
+    \item Tests utilisateurs précoces pour identifier les problèmes d'acceptabilité
+    \item Design d'interface simple et intuitive
+    \item Messages clairs en cas d'erreur
+    \item Possibilité d'escalade vers un agent humain
+\end{itemize}
+
+\subsubsection{Risques Projet}
+
+\begin{itemize}
+    \item \textbf{Retards de développement} : Complexité sous-estimée de certaines fonctionnalités
+    \item \textbf{Évolution des besoins} : Changements de spécifications en cours de projet
+    \item \textbf{Disponibilité des ressources} : Accès limité au robot Pepper ou aux environnements de test
+\end{itemize}
+
+\subsubsection{Mesures d'Atténuation}
+
+\begin{itemize}
+    \item Planning avec marges de sécurité
+    \item Développement itératif avec livraisons fréquentes
+    \item Communication régulière avec les parties prenantes
+    \item Gestion proactive des dépendances externes
+\end{itemize}
+
+% ============================================================================
+% SECTION 7: PLANNING PRÉVISIONNEL
+% ============================================================================
+
+\section{Planning Prévisionnel}
+
+\subsection{Phases du Projet}
+
+Le projet est organisé en 6 phases principales :
+
+\subsubsection{Phase 1 : Conception et Architecture (4 semaines)}
+
+\begin{itemize}
+    \item Analyse des besoins et spécifications détaillées
+    \item Design de l'architecture système
+    \item Choix des technologies et bibliothèques
+    \item Mise en place de l'environnement de développement
+    \item Création des maquettes d'interface
+\end{itemize}
+
+\textbf{Livrables} :
+\begin{itemize}
+    \item Document d'architecture technique
+    \item Spécifications fonctionnelles détaillées
+    \item Maquettes de l'interface d'administration
+    \item Plan de test
+\end{itemize}
+
+\subsubsection{Phase 2 : Développement Core (6 semaines)}
+
+\begin{itemize}
+    \item Développement de l'API Flask principale
+    \item Implémentation de la reconnaissance faciale
+    \item Intégration du chatbot avec RAG
+    \item Développement du système de transcription audio
+    \item Création de l'interface d'administration Streamlit
+\end{itemize}
+
+\textbf{Livrables} :
+\begin{itemize}
+    \item API Flask fonctionnelle avec documentation Swagger
+    \item Module de reconnaissance faciale opérationnel
+    \item Chatbot intégré avec contexte RAG
+    \item Interface d'administration de base
+\end{itemize}
+
+\subsubsection{Phase 3 : Fonctionnalités Avancées (4 semaines)}
+
+\begin{itemize}
+    \item Développement du système de réservations
+    \item Intégration avec l'API FastAPI
+    \item Amélioration de l'interface d'administration
+    \item Optimisation des performances
+    \item Gestion des erreurs et logs
+\end{itemize}
+
+\textbf{Livrables} :
+\begin{itemize}
+    \item Système de gestion de réservations complet
+    \item Interface d'administration finale
+    \item Documentation utilisateur
+\end{itemize}
+
+\subsubsection{Phase 4 : Tests et Intégration (3 semaines)}
+
+\begin{itemize}
+    \item Tests unitaires et d'intégration
+    \item Intégration avec le robot Pepper
+    \item Tests de charge et performance
+    \item Correction des bugs identifiés
+    \item Préparation de l'environnement de test utilisateur
+\end{itemize}
+
+\textbf{Livrables} :
+\begin{itemize}
+    \item Système intégré et testé
+    \item Rapport de tests techniques
+    \item Environnement de test prêt
+\end{itemize}
+
+\subsubsection{Phase 5 : Tests Utilisateurs (4 semaines)}
+
+\begin{itemize}
+    \item Phase 1 : Tests exploratoires (10-15 utilisateurs)
+    \item Phase 2 : Tests fonctionnels (20-30 utilisateurs)
+    \item Collecte et analyse des retours
+    \item Identification des améliorations prioritaires
+\end{itemize}
+
+\textbf{Livrables} :
+\begin{itemize}
+    \item Rapport de tests utilisateurs Phase 1
+    \item Rapport de tests utilisateurs Phase 2
+    \item Analyse des retours utilisateurs
+    \item Liste priorisée des améliorations
+\end{itemize}
+
+\subsubsection{Phase 6 : Ajustements et Finalisation (3 semaines)}
+
+\begin{itemize}
+    \item Implémentation des corrections prioritaires
+    \item Améliorations basées sur les retours utilisateurs
+    \item Tests de validation finale
+    \item Documentation finale
+    \item Préparation du déploiement
+\end{itemize}
+
+\textbf{Livrables} :
+\begin{itemize}
+    \item Version finale du système
+    \item Documentation complète (technique et utilisateur)
+    \item Guide de déploiement
+    \item Rapport final de projet
+\end{itemize}
+
+\subsection{Planning Global}
+
+\begin{center}
+\begin{tabular}{|l|c|c|}
+\hline
+\textbf{Phase} & \textbf{Durée} & \textbf{Cumul} \\
+\hline
+Conception et Architecture & 4 semaines & 4 semaines \\
+Développement Core & 6 semaines & 10 semaines \\
+Fonctionnalités Avancées & 4 semaines & 14 semaines \\
+Tests et Intégration & 3 semaines & 17 semaines \\
+Tests Utilisateurs & 4 semaines & 21 semaines \\
+Ajustements et Finalisation & 3 semaines & \textbf{24 semaines} \\
+\hline
+\end{tabular}
+\end{center}
+
+\textbf{Durée totale estimée} : 24 semaines (environ 6 mois)
+
+% ============================================================================
+% SECTION 8: ÉQUIPE DU PROJET
+% ============================================================================
+
+\section{Équipe du Projet}
+
+\subsection{Rôles et Responsabilités}
+
+L'équipe du projet est composée des membres suivants :
+
+\subsubsection{Chef de Projet}
+
+\begin{itemize}
+    \item Coordination générale du projet
+    \item Gestion du planning et des ressources
+    \item Communication avec les parties prenantes
+    \item Suivi des risques et problèmes
+\end{itemize}
+
+\subsubsection{Développeurs Backend}
+
+\begin{itemize}
+    \item Développement de l'API Flask
+    \item Intégration des services d'IA (Whisper, Llama, YOLO)
+    \item Gestion de la base de données
+    \item Optimisation des performances
+\end{itemize}
+
+\subsubsection{Développeur Frontend / Interface}
+
+\begin{itemize}
+    \item Développement de l'interface Streamlit
+    \item Design et ergonomie de l'interface
+    \item Intégration avec l'API
+\end{itemize}
+
+\subsubsection{Spécialiste IA / ML}
+
+\begin{itemize}
+    \item Configuration et optimisation des modèles d'IA
+    \item Mise en place du système RAG
+    \item Fine-tuning si nécessaire
+    \item Évaluation des performances des modèles
+\end{itemize}
+
+\subsubsection{Intégrateur Robot Pepper}
+
+\begin{itemize}
+    \item Intégration avec le robot Pepper
+    \item Développement des interactions robotiques
+    \item Tests d'intégration matérielle
+\end{itemize}
+
+\subsubsection{Testeurs / UX Researchers}
+
+\begin{itemize}
+    \item Conception des scénarios de test
+    \item Animation des sessions de test utilisateur
+    \item Analyse des retours utilisateurs
+    \item Recommandations d'amélioration UX
+\end{itemize}
+
+\subsection{Communication et Réunions}
+
+\begin{itemize}
+    \item \textbf{Réunion hebdomadaire d'équipe} : Point d'avancement, blocages
+    \item \textbf{Revue de sprint} : Toutes les 2 semaines, présentation des livrables
+    \item \textbf{Rétrospective} : Amélioration continue des processus
+    \item \textbf{Communication asynchrone} : Outils collaboratifs (Git, documentation partagée)
+\end{itemize}
+
+% ============================================================================
+% SECTION 9: ANNEXES
+% ============================================================================
+
+\section{Annexes}
+
+\subsection{Questionnaire Type pour Tests Utilisateurs}
+
+\subsubsection{Questionnaire Pré-Test}
+
+\begin{enumerate}
+    \item Quel est votre âge ?
+    \item Avez-vous déjà utilisé un robot d'accueil ou un assistant vocal ? (Oui/Non)
+    \item Sur une échelle de 1 à 5, comment vous sentez-vous à l'aise avec les nouvelles technologies ?
+    \item Quelles sont vos attentes concernant ce système ?
+\end{enumerate}
+
+\subsubsection{Questionnaire Post-Test}
+
+\begin{enumerate}
+    \item Sur une échelle de 1 à 5, comment évaluez-vous :
+    \begin{itemize}
+        \item La facilité d'utilisation globale ?
+        \item La rapidité de réponse du système ?
+        \item La pertinence des réponses du chatbot ?
+        \item La précision de la reconnaissance faciale ?
+        \item L'utilité globale du système ?
+    \end{itemize}
+    
+    \item Avez-vous rencontré des difficultés ? Lesquelles ?
+    
+    \item Quelle fonctionnalité avez-vous préférée ? Pourquoi ?
+    
+    \item Recommanderiez-vous ce système à un autre hôtel ? (1-5)
+    
+    \item Avez-vous des suggestions d'amélioration ?
+    
+    \item Sur une échelle de 0 à 10, quelle note donneriez-vous au système ?
+\end{enumerate}
+
+\subsection{Outils de Test}
+
+\begin{itemize}
+    \item \textbf{Enregistrement} : Caméras pour enregistrer les sessions (avec consentement)
+    \item \textbf{Logs système} : Système de logging intégré pour tracer les interactions
+    \item \textbf{Métriques} : Outils d'analyse de performance (temps de réponse, taux d'erreur)
+    \item \textbf{Questionnaires} : Plateforme en ligne (Google Forms, Typeform) ou papier
+    \item \textbf{Analyse vidéo} : Logiciels d'analyse comportementale si nécessaire
+\end{itemize}
+
+\subsection{Architecture Technique}
+
+Le système est composé de :
+
+\begin{itemize}
+    \item \textbf{API Flask} : Serveur principal exposant les services
+    \item \textbf{API FastAPI} : Service de gestion de réservations
+    \item \textbf{Interface Streamlit} : Interface d'administration web
+    \item \textbf{Base de données visages} : Fichier pickle pour les encodages faciaux
+    \item \textbf{Base de données réservations} : SQLite via SQLAlchemy
+    \item \textbf{Documentation RAG} : Fichiers texte indexés vectoriellement
+    \item \textbf{Robot Pepper} : Client connecté à l'API Flask
+\end{itemize}
+
+\subsection{Documentation Complémentaire}
+
+\begin{itemize}
+    \item Documentation technique de l'API (Swagger)
+    \item Guide d'installation et de déploiement
+    \item Guide d'utilisation de l'interface d'administration
+    \item Procédures de maintenance
+    \item Documentation des modèles d'IA utilisés
+\end{itemize}
+
+% ============================================================================
+% CONCLUSION
+% ============================================================================
+
+\newpage
+\section*{Conclusion}
+
+Ce cahier des charges définit les spécifications complètes du projet Robot Hotel, un système intelligent d'accueil et de gestion hôtelière basé sur l'intelligence artificielle et la robotique. Le projet vise à améliorer l'expérience client tout en validant l'acceptabilité et l'efficacité de ces technologies innovantes dans un contexte hôtelier réel.
+
+Le succès du projet sera mesuré à travers des indicateurs de performance techniques, des tests utilisateurs approfondis et une évaluation continue de la satisfaction. La méthodologie de développement itérative et centrée utilisateur permettra d'adapter le système aux besoins réels et d'optimiser l'expérience d'utilisation.
+
+L'équipe projet est mobilisée pour livrer un système fonctionnel, robuste et centré sur l'utilisateur, tout en respectant les contraintes techniques et les délais définis dans ce document.
+
+\vspace{2cm}
+
+\noindent\textit{Document version 1.0 - \today}
+
+\end{document}
+

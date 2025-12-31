@@ -145,3 +145,29 @@ def get_latest_detections() -> Dict:
     """Récupère les dernières détections"""
     return make_api_request("GET", "/face/stream/detections")
 
+def scan_qr_code(file) -> Dict:
+    """Scanne un QR code depuis une image"""
+    return make_api_request("POST", "/scan_qr", files={"file": file})
+
+def scan_qr_code_stream(file, video_url: Optional[str] = None) -> Dict:
+    """Scanne un QR code depuis un flux vidéo (frame)"""
+    data = {}
+    if video_url:
+        data["video_url"] = video_url
+    return make_api_request("POST", "/scan_qr/stream", files={"file": file}, data=data)
+
+def start_qr_stream(video_url: Optional[str] = None, camera_index: int = 0) -> Dict:
+    """Démarre le streaming vidéo pour la détection automatique de QR code"""
+    json_data = {"camera_index": camera_index}
+    if video_url:
+        json_data["video_url"] = video_url
+    return make_api_request("POST", "/scan_qr/stream/start", json_data=json_data)
+
+def stop_qr_stream() -> Dict:
+    """Arrête le streaming vidéo QR code"""
+    return make_api_request("POST", "/scan_qr/stream/stop")
+
+def get_qr_stream_status() -> Dict:
+    """Récupère le statut et les résultats du stream QR code"""
+    return make_api_request("GET", "/scan_qr/stream/status")
+
