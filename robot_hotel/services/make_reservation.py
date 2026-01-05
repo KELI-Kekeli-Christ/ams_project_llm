@@ -328,6 +328,29 @@ def make_reservation(transcript: str) -> dict:
     print("🎉 RÉSERVATION CRÉÉE AVEC SUCCÈS")
     print("="*60)
     
+    # Envoyer un email au gestionnaire
+    try:
+        from services.email import send_reservation_email
+        reservation_id = reservation_result.get("id_reservation", "N/A")
+        qr_code_path = reservation_result.get("qr_code_path")
+        
+        email_result = send_reservation_email(
+            reservation_id=reservation_id,
+            client_name=reservation_data.get("nom", ""),
+            client_prenom=reservation_data.get("prenom", ""),
+            type_chambre=reservation_data.get("type_chambre", ""),
+            date_arrivee=reservation_data.get("date_arrivee", ""),
+            date_depart=reservation_data.get("date_depart", ""),
+            qr_code_path=qr_code_path
+        )
+        
+        if email_result.get("status") == "success":
+            print(f"📧 Email envoyé au gestionnaire: {email_result.get('manager_email')}")
+        else:
+            print(f"⚠️ Email non envoyé: {email_result.get('message')}")
+    except Exception as e:
+        print(f"⚠️ Erreur lors de l'envoi de l'email (non bloquant): {e}")
+    
     return {
         "status": "success",
         "client": client_result,

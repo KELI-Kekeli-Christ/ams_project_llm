@@ -1,0 +1,623 @@
+\documentclass[aspectratio=169,11pt]{beamer}
+
+% Packages
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage{graphicx}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usepackage{fontawesome5}
+
+% Thème
+\usetheme{Madrid}
+\usecolortheme{default}
+
+% Couleurs personnalisées
+\definecolor{primaryblue}{RGB}{41,128,185}
+\definecolor{secondaryblue}{RGB}{52,152,219}
+\definecolor{accentorange}{RGB}{231,76,60}
+\definecolor{successgreen}{RGB}{39,174,96}
+
+\setbeamercolor{structure}{fg=primaryblue}
+\setbeamercolor{title}{fg=white,bg=primaryblue}
+\setbeamercolor{frametitle}{fg=white,bg=primaryblue}
+
+% Informations
+\title[Robot Hotel]{Cahier des Charges}
+\subtitle{Projet Robot Hotel - Système Intelligent d'Accueil et de Gestion Hôtelière}
+\author{Équipe de Développement}
+\institute{Université d'Avignon}
+\date{\today}
+
+% Logo (optionnel - à adapter selon votre logo)
+% \logo{\includegraphics[height=0.8cm]{logo.png}}
+
+\begin{document}
+
+% Page de titre
+\frame{\titlepage}
+
+% Table des matières
+\begin{frame}{Plan de la Présentation}
+\tableofcontents
+\end{frame}
+
+% ============================================================================
+% SECTION 1: CONTEXTE ET OBJECTIFS
+% ============================================================================
+
+\section{Contexte et Objectifs}
+
+\begin{frame}{Contexte du Projet}
+\begin{block}{Vision}
+Système intelligent d'accueil et de gestion hôtelière basé sur robot humanoïde Pepper
+\end{block}
+
+\begin{columns}
+\column{0.5\textwidth}
+\textbf{Objectifs principaux :}
+\begin{itemize}
+    \item Améliorer l'expérience d'accueil
+    \item Automatiser les tâches de réception
+    \item Service d'information 24/7
+    \item Gestion automatisée des réservations
+\end{itemize}
+
+\column{0.5\textwidth}
+\textbf{Besoins identifiés :}
+\begin{itemize}
+    \item Personnalisation de l'accueil
+    \item Accessibilité multilingue
+    \item Efficacité opérationnelle
+    \item Intégration technologique
+\end{itemize}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Objectifs Fonctionnels}
+\begin{block}{Fonctionnalités clés}
+\begin{itemize}
+    \item[\textcolor{primaryblue}{\faUser}] \textbf{Reconnaissance faciale} pour identification clients
+    \item[\textcolor{primaryblue}{\faComments}] \textbf{Chatbot intelligent} (Llama 3.1) avec RAG
+    \item[\textcolor{primaryblue}{\faMicrophone}] \textbf{Transcription audio} (Whisper)
+    \item[\textcolor{primaryblue}{\faDatabase}] \textbf{API REST complète} (Flask)
+    \item[\textcolor{primaryblue}{\faDesktop}] \textbf{Interface admin} (Streamlit)
+    \item[\textcolor{primaryblue}{\faBed}] \textbf{Gestion réservations} automatisée
+\end{itemize}
+\end{block}
+
+\begin{alertblock}{Objectifs techniques}
+Architecture modulaire, performances temps réel, compatibilité Pepper, documentation API
+\end{alertblock}
+\end{frame}
+
+% ============================================================================
+% SECTION 2: PÉRIMÈTRE
+% ============================================================================
+
+\section{Périmètre du Projet}
+
+\begin{frame}{Fonctionnalités Principales}
+\begin{columns}
+\column{0.5\textwidth}
+\textbf{\faUser\ Reconnaissance Faciale}
+\begin{itemize}
+    \item Enregistrement personnes
+    \item Détection temps réel
+    \item Streaming vidéo
+    \item Gestion base de données
+\end{itemize}
+
+\vspace{0.5cm}
+
+\textbf{\faComments\ Chat Intelligent}
+\begin{itemize}
+    \item Chatbot Llama 3.1
+    \item Contexte RAG
+    \item Connaissance temporelle
+    \item Support multilingue
+\end{itemize}
+
+\column{0.5\textwidth}
+\textbf{\faMicrophone\ Audio}
+\begin{itemize}
+    \item Transcription Whisper
+    \item Enregistrement vocal
+    \item Détection silence
+    \item Extraction informations
+\end{itemize}
+
+\vspace{0.5cm}
+
+\textbf{\faBed\ Réservations}
+\begin{itemize}
+    \item Création depuis audio
+    \item Extraction intelligente
+    \item QR codes automatiques
+    \item Vérification QR codes
+\end{itemize}
+\end{columns}
+\end{frame}
+
+% ============================================================================
+% SECTION 3: TECHNOLOGIES
+% ============================================================================
+
+\section{Technologies Utilisées}
+
+\begin{frame}{Stack Technologique}
+\begin{columns}
+\column{0.5\textwidth}
+\textbf{Frameworks}
+\begin{itemize}
+    \item Flask (API REST)
+    \item FastAPI (Réservations)
+    \item Streamlit (Interface)
+    \item Uvicorn (Serveur ASGI)
+\end{itemize}
+
+\vspace{0.5cm}
+
+\textbf{IA / ML}
+\begin{itemize}
+    \item Llama 3.1-8B-Instruct
+    \item Whisper Medium
+    \item YOLOv8
+    \item face\_recognition
+    \item OpenCV
+\end{itemize}
+
+\column{0.5\textwidth}
+\textbf{RAG}
+\begin{itemize}
+    \item LlamaIndex
+    \item HuggingFace Embeddings
+    \item Vector Store
+\end{itemize}
+
+\vspace{0.5cm}
+
+\textbf{Bases de Données}
+\begin{itemize}
+    \item Pickle (Visages)
+    \item SQLite (Réservations)
+    \item SQLAlchemy (ORM)
+\end{itemize}
+
+\vspace{0.5cm}
+
+\textbf{Matériel}
+\begin{itemize}
+    \item Robot Pepper
+    \item Webcam
+    \item Microphone
+\end{itemize}
+\end{columns}
+\end{frame}
+
+% ============================================================================
+% SECTION 4: FONCTIONNALITÉS IMPLÉMENTÉES
+% ============================================================================
+
+\section{Fonctionnalités Implémentées}
+
+\begin{frame}{Architecture Multi-Services}
+\begin{block}{Système composé de 3 services principaux}
+\begin{enumerate}
+    \item \textbf{API Flask} (port 5000) - Serveur principal avec Swagger
+    \item \textbf{API FastAPI} (port 8000) - Gestion réservations
+    \item \textbf{Interface Streamlit} (port 8501) - Administration
+\end{enumerate}
+\end{block}
+
+\begin{block}{Automatisation}
+Script Bash unifié (\texttt{start\_all.sh}) pour démarrer tous les services avec leurs environnements virtuels
+\end{block}
+\end{frame}
+
+\begin{frame}{Reconnaissance Faciale}
+\begin{columns}
+\column{0.5\textwidth}
+\textbf{Technologies}
+\begin{itemize}
+    \item YOLOv8 (détection)
+    \item face\_recognition (reconnaissance)
+    \item Base pickle
+\end{itemize}
+
+\vspace{0.5cm}
+
+\textbf{Fonctionnalités}
+\begin{itemize}
+    \item Enregistrement via upload
+    \item Détection temps réel
+    \item Streaming vidéo
+    \item Gestion complète BDD
+\end{itemize}
+
+\column{0.5\textwidth}
+\begin{center}
+\Large
+\textcolor{primaryblue}{\faUser\ \faCheckCircle}
+\end{center}
+
+\textbf{Interface Admin}
+\begin{itemize}
+    \item Page Streamlit dédiée
+    \item Preview images
+    \item Liste et suppression
+    \item Test en temps réel
+\end{itemize}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Chat Intelligent avec RAG}
+\begin{block}{Chatbot Llama 3.1-8B-Instruct}
+\begin{itemize}
+    \item Connexion Hugging Face
+    \item Conversations contextuelles
+    \item Réponses basées sur documentation hôtel
+\end{itemize}
+\end{block}
+
+\begin{block}{Système RAG}
+\begin{itemize}
+    \item Indexation vectorielle (LlamaIndex)
+    \item Embeddings HuggingFace
+    \item Recherche sémantique
+\end{itemize}
+\end{block}
+
+\begin{block}{Contexte Temporel}
+Intégration automatique date/heure pour réponses temporelles précises
+\end{block}
+\end{frame}
+
+\begin{frame}{Gestion de Réservations}
+\begin{columns}
+\column{0.5\textwidth}
+\textbf{Création depuis Audio}
+\begin{itemize}
+    \item Transcription Whisper
+    \item Extraction Llama 3.1
+    \item Conversion dates relatives
+\end{itemize}
+
+\vspace{0.5cm}
+
+\textbf{API FastAPI}
+\begin{itemize}
+    \item Création clients
+    \item Création réservations
+    \item Vérification QR codes
+    \item Confirmation arrivée
+\end{itemize}
+
+\column{0.5\textwidth}
+\textbf{QR Codes}
+\begin{itemize}
+    \item Génération automatique
+    \item Stockage PNG
+    \item Vérification scan
+    \item Interface dédiée
+\end{itemize}
+
+\vspace{0.5cm}
+
+\textbf{Notifications Email}
+\begin{itemize}
+    \item Envoi automatique
+    \item Email HTML formaté
+    \item QR code en pièce jointe
+    \item Configuration SMTP
+\end{itemize}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Interface Streamlit - 5 Onglets}
+\begin{block}{Organisation}
+\begin{enumerate}
+    \item \textcolor{primaryblue}{\faUser} \textbf{Gestion Visages} - Enregistrement, liste, suppression
+    \item \textcolor{primaryblue}{\faVideo} \textbf{Streaming Vidéo} - Contrôle détection faciale
+    \item \textcolor{primaryblue}{\faComments} \textbf{Chat et Audio} - Chat, transcription, enregistrement
+    \item \textcolor{primaryblue}{\faBed} \textbf{Réservations} - Création, vérification QR codes
+    \item \textcolor{primaryblue}{\faEnvelope} \textbf{Configuration Email} - Paramètres SMTP
+\end{enumerate}
+\end{block}
+
+\begin{block}{Fonctionnalités}
+Test connexion API, gestion erreurs, feedback utilisateur, logs détaillés
+\end{block}
+\end{frame}
+
+\begin{frame}{Intégration Robot Pepper}
+\begin{columns}
+\column{0.5\textwidth}
+\textbf{Script Principal}
+\begin{itemize}
+    \item Interaction complète
+    \item Enregistrement audio
+    \item Transcription + Chat
+    \item Réponse vocale
+\end{itemize}
+
+\vspace{0.5cm}
+
+\textbf{Fonctionnalités}
+\begin{itemize}
+    \item Création réservations
+    \item Scan QR codes
+    \item Interface tablette
+\end{itemize}
+
+\column{0.5\textwidth}
+\begin{center}
+\Large
+\textcolor{accentorange}{\faRobot\ \faCheckCircle}
+\end{center}
+
+\textbf{Workflow}
+\begin{enumerate}
+    \item Reconnaissance
+    \item Interaction vocale
+    \item Traitement IA
+    \item Réponse robot
+\end{enumerate}
+\end{columns}
+\end{frame}
+
+% ============================================================================
+% SECTION 5: SCÉNARIOS DE TESTS
+% ============================================================================
+
+\section{Scénarios de Tests}
+
+\begin{frame}{Scénarios Principaux}
+\begin{block}{Scénario 1 : Reconnaissance}
+\begin{itemize}
+    \item Enregistrement visage
+    \item Détection robot/caméra
+    \item Accueil personnalisé
+    \item \textbf{Critère} : 80\% précision, < 3s
+\end{itemize}
+\end{block}
+
+\begin{block}{Scénario 2 : Chat}
+\begin{itemize}
+    \item Questions services/équipements
+    \item Questions temporelles
+    \item Questions multilingues
+    \item \textbf{Critère} : > 85\% pertinence, < 5s
+\end{itemize}
+\end{block}
+\end{frame}
+
+\begin{frame}{Scénarios Principaux (suite)}
+\begin{block}{Scénario 3 : Réservation Vocale}
+\begin{itemize}
+    \item Enregistrement demande
+    \item Transcription automatique
+    \item Extraction informations
+    \item Génération QR code
+    \item \textbf{Critère} : > 90\% transcription, > 85\% extraction
+\end{itemize}
+\end{block}
+
+\begin{block}{Scénario 4 : Administration}
+\begin{itemize}
+    \item Navigation interface
+    \item Gestion visages
+    \item Tests fonctionnalités
+    \item \textbf{Critère} : Navigation intuitive, < 2min/opération
+\end{itemize}
+\end{block}
+\end{frame}
+
+% ============================================================================
+% SECTION 6: CRITÈRES DE RÉUSSITE
+% ============================================================================
+
+\section{Critères de Réussite}
+
+\begin{frame}{Performances Techniques}
+\begin{block}{Indicateurs Clés}
+\begin{itemize}
+    \item \textbf{Reconnaissance faciale} : $\geq$ 85\% précision
+    \item \textbf{Temps détection} : $\leq$ 3 secondes
+    \item \textbf{Transcription} : $\geq$ 90\% (WER)
+    \item \textbf{Réponse API} : $\leq$ 2s (95\% requêtes)
+    \item \textbf{Disponibilité} : $\geq$ 95\%
+\end{itemize}
+\end{block}
+
+\begin{block}{Performances Utilisateur}
+\begin{itemize}
+    \item Taux réussite tâches : $\geq$ 80\%
+    \item Temps réservation : $\leq$ 2 minutes
+    \item Temps question chatbot : $\leq$ 30 secondes
+    \item Taux abandon : $\leq$ 15\%
+\end{itemize}
+\end{block}
+\end{frame}
+
+\begin{frame}{Satisfaction Utilisateur}
+\begin{block}{Métriques}
+\begin{itemize}
+    \item \textbf{Score global} : $\geq$ 4.0/5.0
+    \item \textbf{Net Promoter Score} : $\geq$ 50
+    \item \textbf{Intention utilisation future} : $\geq$ 70\%
+    \item \textbf{Recommandation} : $\geq$ 75\%
+\end{itemize}
+\end{block}
+
+\begin{block}{Collecte de Retours}
+\begin{itemize}
+    \item Questionnaires structurés (pré/post-test)
+    \item Entretiens semi-directifs
+    \item Observation directe (vidéo)
+    \item Métriques comportementales
+\end{itemize}
+\end{block}
+\end{frame}
+
+% ============================================================================
+% SECTION 7: AMÉLIORATIONS FUTURES
+% ============================================================================
+
+\section{Améliorations Futures}
+
+\begin{frame}{Court Terme (3-6 mois)}
+\begin{block}{Priorités}
+\begin{itemize}
+    \item[\textcolor{successgreen}{\faCheckSquare}] Dashboard analytics
+    \item[\textcolor{successgreen}{\faCheckSquare}] Authentification multi-utilisateurs
+    \item[\textcolor{successgreen}{\faCheckSquare}] Amélioration précision reconnaissance
+    \item[\textcolor{successgreen}{\faCheckSquare}] Templates emails personnalisables
+    \item[\textcolor{successgreen}{\faCheckSquare}] Dockerisation complète
+\end{itemize}
+\end{block}
+\end{frame}
+
+\begin{frame}{Moyen Terme (6-12 mois)}
+\begin{block}{Évolutions}
+\begin{itemize}
+    \item[\textcolor{secondaryblue}{\faMobile}] Application mobile clients
+    \item[\textcolor{secondaryblue}{\faBrain}] Fine-tuning chatbot
+    \item[\textcolor{secondaryblue}{\faCreditCard}] Système de paiement
+    \item[\textcolor{secondaryblue}{\faSms}] Notifications SMS/WhatsApp
+    \item[\textcolor{secondaryblue}{\faDatabase}] Migration PostgreSQL
+    \item[\textcolor{secondaryblue}{\faChartLine}] Monitoring et alertes
+\end{itemize}
+\end{block}
+\end{frame}
+
+\begin{frame}{Long Terme (12+ mois)}
+\begin{block}{Vision}
+\begin{itemize}
+    \item[\textcolor{accentorange}{\faRocket}] IA avancée (sentiment, recommandations)
+    \item[\textcolor{accentorange}{\faUsers}] Support multi-robots
+    \item[\textcolor{accentorange}{\faPlug}] Intégrations externes (PMS, CRM)
+    \item[\textcolor{accentorange}{\faChartBar}] Analytics prédictifs
+    \item[\textcolor{accentorange}{\faGlobe}] Extension autres secteurs
+\end{itemize}
+\end{block}
+\end{frame}
+
+% ============================================================================
+% SECTION 8: CONTRAINTES ET RISQUES
+% ============================================================================
+
+\section{Contraintes et Risques}
+
+\begin{frame}{Contraintes Techniques}
+\begin{columns}
+\column{0.5\textwidth}
+\textbf{Matérielles}
+\begin{itemize}
+    \item Disponibilité Pepper
+    \item Ressources computationnelles
+    \item Stockage modèles ML
+    \item Connexion réseau
+\end{itemize}
+
+\column{0.5\textwidth}
+\textbf{Logicielles}
+\begin{itemize}
+    \item Python 3.12+
+    \item Dépendances multiples
+    \item Environnements virtuels
+    \item Compatibilité OS
+\end{itemize}
+\end{columns}
+
+\begin{alertblock}{Mesures}
+Tests approfondis, documentation complète, logs détaillés, mode dégradé
+\end{alertblock}
+\end{frame}
+
+\begin{frame}{Risques et Mitigation}
+\begin{block}{Risques Techniques}
+\begin{itemize}
+    \item Performance modèles IA → Tests approfondis
+    \item Intégration Pepper → Documentation complète
+    \item Bugs critiques → Système logs détaillé
+\end{itemize}
+\end{block}
+
+\begin{block}{Risques Utilisateur}
+\begin{itemize}
+    \item Acceptabilité → Tests utilisateurs précoces
+    \item Complexité perçue → Design simple
+    \item Fiabilité → Messages erreurs clairs
+\end{itemize}
+\end{block}
+\end{frame}
+
+% ============================================================================
+% SECTION 9: PLANNING
+% ============================================================================
+
+\section{Planning Prévisionnel}
+
+\begin{frame}{Phases du Projet - 24 semaines}
+\begin{block}{Timeline}
+\begin{enumerate}
+    \item \textbf{Conception} (4 sem) - Architecture, technologies
+    \item \textbf{Développement Core} (6 sem) - API, reconnaissance, chatbot
+    \item \textbf{Fonctionnalités Avancées} (4 sem) - Réservations, optimisations
+    \item \textbf{Tests et Intégration} (3 sem) - Tests techniques, Pepper
+    \item \textbf{Tests Utilisateurs} (4 sem) - 30-50 utilisateurs
+    \item \textbf{Finalisation} (3 sem) - Corrections, documentation
+\end{enumerate}
+\end{block}
+
+\begin{center}
+\textbf{Durée totale : 6 mois}
+\end{center}
+\end{frame}
+
+% ============================================================================
+% CONCLUSION
+% ============================================================================
+
+\section{Conclusion}
+
+\begin{frame}{Récapitulatif}
+\begin{block}{Système complet implémenté}
+\begin{itemize}
+    \item[\textcolor{successgreen}{\faCheckCircle}] Reconnaissance faciale opérationnelle
+    \item[\textcolor{successgreen}{\faCheckCircle}] Chatbot intelligent avec RAG
+    \item[\textcolor{successgreen}{\faCheckCircle}] Transcription et enregistrement audio
+    \item[\textcolor{successgreen}{\faCheckCircle}] Gestion réservations automatique
+    \item[\textcolor{successgreen}{\faCheckCircle}] Interface admin complète
+    \item[\textcolor{successgreen}{\faCheckCircle}] Intégration Robot Pepper
+    \item[\textcolor{successgreen}{\faCheckCircle}] Notifications email avec QR codes
+\end{itemize}
+\end{block}
+
+\begin{block}{Objectifs}
+Améliorer l'expérience client tout en validant l'acceptabilité des technologies innovantes
+\end{block}
+\end{frame}
+
+\begin{frame}{Merci pour votre attention}
+\begin{center}
+\Large
+\textbf{Questions ?}
+
+\vspace{2cm}
+
+\large
+Équipe de Développement\\
+Université d'Avignon
+
+\vspace{1cm}
+
+\today
+\end{center}
+\end{frame}
+
+\end{document}
+

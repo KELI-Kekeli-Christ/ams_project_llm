@@ -1,0 +1,29 @@
+# Dépendances pour les tests Robot Hotel
+
+# Framework de test
+pytest>=7.4.0
+pytest-cov>=4.1.0          # Couverture de code
+pytest-mock>=3.12.0        # Mocks avancés
+pytest-asyncio>=0.21.0     # Support async si nécessaire
+pytest-timeout>=2.1.0      # Timeout pour les tests
+
+# Fixtures et helpers
+pytest-fixtures>=0.1.0
+
+# Mocks et stubs
+responses>=0.24.0          # Mock de requêtes HTTP
+freezegun>=1.2.0           # Mock du temps
+
+# Test de sécurité
+bandit>=1.7.5              # Analyse de sécurité du code
+safety>=2.3.0              # Vérification des vulnérabilités
+
+# Utilitaires pour tests
+pillow>=10.0.0             # Pour créer images de test
+numpy>=1.24.0              # Pour créer audio de test
+scipy>=1.11.0              # Pour audio (write_wav)
+
+# Documentation des tests
+pytest-html>=4.1.0         # Rapports HTML
+pytest-json-report>=1.5.0  # Rapports JSON
+

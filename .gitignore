@@ -1,14 +1,5 @@
-# Environnements virtuels Python
-# Ignorer tous les dossiers env dans tout le projet
-**/env/
-env/
-venv/
-ENV/
-.venv/
-.ENV/
-
 # Python
-__pycache__/
+**/__pycache__/
 *.py[cod]
 *$py.class
 *.so
@@ -25,64 +16,19 @@ parts/
 sdist/
 var/
 wheels/
-pip-wheel-metadata/
-share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-MANIFEST
 
-# PyInstaller
-*.manifest
-*.spec
-
-# Unit test / coverage reports
-htmlcov/
-.tox/
-.nox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.py,cover
-.hypothesis/
-.pytest_cache/
-
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# IPython
-profile_default/
-ipython_config.py
-
-# pyenv
-.python-version
-
-# pipenv
-Pipfile.lock
-
-# PEP 582
-__pypackages__/
-
-# Celery
-celerybeat-schedule
-celerybeat.pid
-
-# SageMath
-*.sage.py
-
-# Environments
-.env
-.env.local
-.env.*.local
-.venv
+# Virtual environments
+**/env/
+**/venv/
+**/ENV/
+**/.venv/
 env/
 venv/
 ENV/
-env.bak/
-venv.bak/
+.venv/
 
 # IDEs
 .vscode/
@@ -90,83 +36,40 @@ venv.bak/
 *.swp
 *.swo
 *~
-.DS_Store
-
-# Flask
-instance/
-.webassets-cache
-
-# FastAPI
-*.db
-*.sqlite
-*.sqlite3
-
-# Streamlit
-.streamlit/
 
 # Logs
 logs/
 *.log
-*.log.*
-
-# Fichiers temporaires
 *.tmp
 *.temp
-tmp/
-temp/
 
-# Modèles ML (optionnel - décommentez si vous ne voulez pas versionner les modèles)
-# *.pt
-# *.pth
-# *.h5
-# *.onnx
-# *.pb
-
-# Fichiers de données volumineux (optionnel)
-# *.pkl
-# *.pickle
-
-# Fichiers de sauvegarde
-*.bak
-*.backup
-*.old
-
-# Fichiers système
-.DS_Store
-Thumbs.db
-desktop.ini
-
-# Fichiers de configuration locaux
-config.local.py
-settings.local.py
-.local/
-
-# Dossiers de packages
-packages_pepper/
-pepper_test/venv/
-*.whl
-
-# Enregistrements audio (optionnel - décommentez si vous ne voulez pas versionner)
-# recordings/
-# *.wav
-# *.mp3
-# *.ogg
-
-# QR codes générés (optionnel)
-# app/static/qr/
-# static/qr/
-
-# PID files
-*.pid
-
-# Fichiers de base de données
+# Database
 *.db
 *.sqlite
 *.sqlite3
 ceribot.db
 
-# Fichiers de cache
-.cache/
-.pytest_cache/
-.ruff_cache/
+# Environment variables
+.env
+.env.local
 
+# OS
+.DS_Store
+Thumbs.db
+
+# Test files (grands fichiers)
+tests/fixtures/*.jpg
+tests/fixtures/*.png
+tests/fixtures/*.wav
+tests/fixtures/*.mp3
+!tests/fixtures/README.md
+
+# Coverage
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+
+# pytest
+.pytest_cache/
