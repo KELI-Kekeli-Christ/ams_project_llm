@@ -1,0 +1,820 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Workflow Robot Hotel - Diagramme Interactif</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 40px;
+        }
+
+        h1 {
+            text-align: center;
+            color: #2c3e50;
+            margin-bottom: 10px;
+            font-size: 2.5em;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #7f8c8d;
+            margin-bottom: 40px;
+            font-size: 1.2em;
+        }
+
+        .workflow-section {
+            margin-bottom: 60px;
+            padding: 30px;
+            background: #f8f9fa;
+            border-radius: 15px;
+            border-left: 5px solid;
+        }
+
+        .workflow-section.workflow-1 { border-left-color: #3498db; }
+        .workflow-section.workflow-2 { border-left-color: #e74c3c; }
+        .workflow-section.workflow-3 { border-left-color: #2ecc71; }
+        .workflow-section.workflow-4 { border-left-color: #f39c12; }
+
+        .workflow-title {
+            font-size: 1.8em;
+            color: #2c3e50;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .workflow-title i {
+            font-size: 1.2em;
+        }
+
+        .workflow-diagram {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            align-items: center;
+            gap: 20px;
+            padding: 40px 20px;
+            position: relative;
+        }
+
+        .node {
+            background: white;
+            border-radius: 15px;
+            padding: 20px 25px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            min-width: 180px;
+            text-align: center;
+            transition: all 0.3s ease;
+            position: relative;
+            z-index: 2;
+            cursor: pointer;
+            border: 3px solid transparent;
+        }
+
+        .node:hover {
+            transform: translateY(-5px) scale(1.05);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+            border-color: currentColor;
+        }
+
+        .node.active {
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+
+        .node-icon {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            display: block;
+        }
+
+        .node-title {
+            font-weight: bold;
+            font-size: 1.1em;
+            margin-bottom: 5px;
+        }
+
+        .node-desc {
+            font-size: 0.9em;
+            color: #7f8c8d;
+        }
+
+        /* Couleurs des nodes */
+        .node-client { color: #3498db; }
+        .node-robot { color: #e74c3c; }
+        .node-api { color: #2ecc71; }
+        .node-service { color: #9b59b6; }
+        .node-db { color: #f39c12; }
+        .node-notification { color: #1abc9c; }
+
+        .arrow {
+            font-size: 2em;
+            color: #7f8c8d;
+            animation: arrow-flow 2s infinite;
+            position: relative;
+            z-index: 1;
+        }
+
+        @keyframes arrow-flow {
+            0%, 100% { opacity: 0.5; transform: translateX(0); }
+            50% { opacity: 1; transform: translateX(5px); }
+        }
+
+        .arrow.down {
+            transform: rotate(90deg);
+            margin: 10px 0;
+        }
+
+        .play-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 50px;
+            font-size: 1.1em;
+            cursor: pointer;
+            margin: 20px auto;
+            display: block;
+            transition: all 0.3s ease;
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .play-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.6);
+        }
+
+        .play-btn i {
+            margin-right: 10px;
+        }
+
+        .steps-list {
+            margin-top: 30px;
+            padding: 20px;
+            background: white;
+            border-radius: 10px;
+        }
+
+        .steps-list h3 {
+            color: #2c3e50;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+        }
+
+        .step-item {
+            padding: 12px;
+            margin: 8px 0;
+            background: #ecf0f1;
+            border-left: 4px solid #3498db;
+            border-radius: 5px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            transition: all 0.3s ease;
+        }
+
+        .step-item:hover {
+            background: #d5dbdb;
+            transform: translateX(5px);
+        }
+
+        .step-item i {
+            color: #3498db;
+            font-size: 1.2em;
+        }
+
+        .legend {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 20px;
+            margin-top: 40px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 15px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+
+        .legend-icon {
+            font-size: 1.5em;
+        }
+
+        .tech-badge {
+            display: inline-block;
+            padding: 5px 12px;
+            background: #3498db;
+            color: white;
+            border-radius: 20px;
+            font-size: 0.85em;
+            margin: 3px;
+        }
+
+        @media (max-width: 768px) {
+            .workflow-diagram {
+                flex-direction: column;
+            }
+            
+            .arrow {
+                transform: rotate(90deg);
+            }
+
+            .node {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1><i class="fas fa-robot"></i> Workflow Système Robot Hotel</h1>
+        <p class="subtitle">Diagramme interactif des workflows principaux</p>
+
+        <!-- Workflow 1: Reconnaissance Faciale -->
+        <div class="workflow-section workflow-1">
+            <div class="workflow-title">
+                <i class="fas fa-user-circle"></i>
+                <span>1. Reconnaissance Faciale et Accueil Personnalisé</span>
+            </div>
+            <button class="play-btn" onclick="animateWorkflow(1)">
+                <i class="fas fa-play"></i> Animer ce workflow
+            </button>
+            <div class="workflow-diagram" id="workflow-1">
+                <div class="node node-client" data-id="1">
+                    <i class="fas fa-user node-icon"></i>
+                    <div class="node-title">Client arrive</div>
+                    <div class="node-desc">Se place devant robot</div>
+                </div>
+                <div class="arrow"><i class="fas fa-arrow-right"></i></div>
+                <div class="node node-robot" data-id="2">
+                    <i class="fas fa-robot node-icon"></i>
+                    <div class="node-title">Robot Pepper</div>
+                    <div class="node-desc">Caméra active</div>
+                </div>
+                <div class="arrow"><i class="fas fa-arrow-right"></i></div>
+                <div class="node node-api" data-id="3">
+                    <i class="fas fa-server node-icon"></i>
+                    <div class="node-title">API Flask</div>
+                    <div class="node-desc">/face/detect</div>
+                </div>
+                <div class="arrow"><i class="fas fa-arrow-right"></i></div>
+                <div class="node node-service" data-id="4">
+                    <i class="fas fa-search node-icon"></i>
+                    <div class="node-title">Reconnaissance</div>
+                    <div class="node-desc">YOLOv8 + face_recognition</div>
+                </div>
+                <div class="arrow"><i class="fas fa-arrow-right"></i></div>
+                <div class="node node-db" data-id="5">
+                    <i class="fas fa-database node-icon"></i>
+                    <div class="node-title">Base Visages</div>
+                    <div class="node-desc">friends.pkl</div>
+                </div>
+                <div class="arrow"><i class="fas fa-arrow-left"></i></div>
+                <div class="node node-service" data-id="4">
+                    <i class="fas fa-check-circle node-icon"></i>
+                    <div class="node-title">Match trouvé</div>
+                    <div class="node-desc">Identité client</div>
+                </div>
+            </div>
+            <div class="steps-list">
+                <h3><i class="fas fa-list-ol"></i> Étapes détaillées :</h3>
+                <div class="step-item"><i class="fas fa-camera"></i><span>Photo capturée par le robot Pepper</span></div>
+                <div class="step-item"><i class="fas fa-image"></i><span>Image envoyée à l'API Flask</span></div>
+                <div class="step-item"><i class="fas fa-brain"></i><span>Détection faciale avec YOLOv8</span></div>
+                <div class="step-item"><i class="fas fa-fingerprint"></i><span>Encodage avec face_recognition</span></div>
+                <div class="step-item"><i class="fas fa-search"></i><span>Recherche en base de données</span></div>
+                <div class="step-item"><i class="fas fa-smile"></i><span>Accueil personnalisé si match trouvé</span></div>
+            </div>
+        </div>
+
+        <!-- Workflow 2: Chatbot -->
+        <div class="workflow-section workflow-2">
+            <div class="workflow-title">
+                <i class="fas fa-comments"></i>
+                <span>2. Interaction avec le Chatbot Intelligent</span>
+            </div>
+            <button class="play-btn" onclick="animateWorkflow(2)">
+                <i class="fas fa-play"></i> Animer ce workflow
+            </button>
+            <div class="workflow-diagram" id="workflow-2">
+                <div class="node node-client" data-id="1">
+                    <i class="fas fa-question-circle node-icon"></i>
+                    <div class="node-title">Question Client</div>
+                    <div class="node-desc">Texte ou audio</div>
+                </div>
+                <div class="arrow"><i class="fas fa-arrow-right"></i></div>
+                <div class="node node-robot" data-id="2">
+                    <i class="fas fa-desktop node-icon"></i>
+                    <div class="node-title">Interface</div>
+                    <div class="node-desc">Streamlit / Pepper</div>
+                </div>
+                <div class="arrow"><i class="fas fa-arrow-right"></i></div>
+                <div class="node node-api" data-id="3">
+                    <i class="fas fa-server node-icon"></i>
+                    <div class="node-title">API Flask</div>
+                    <div class="node-desc">/chat</div>
+                </div>
+                <div class="arrow"><i class="fas fa-arrow-right"></i></div>
+                <div class="node node-service" data-id="4">
+                    <i class="fas fa-robot node-icon"></i>
+                    <div class="node-title">Llama 3.1</div>
+                    <div class="node-desc">+ Système RAG</div>
+                </div>
+                <div class="arrow"><i class="fas fa-arrow-right"></i></div>
+                <div class="node node-db" data-id="5">
+                    <i class="fas fa-book node-icon"></i>
+                    <div class="node-title">Documentation</div>
+                    <div class="node-desc">Vector Store</div>
+                </div>
+                <div class="arrow"><i class="fas fa-arrow-left"></i></div>
+                <div class="node node-service" data-id="4">
+                    <i class="fas fa-lightbulb node-icon"></i>
+                    <div class="node-title">Réponse</div>
+                    <div class="node-desc">Contextuelle</div>
+                </div>
+            </div>
+            <div class="steps-list">
+                <h3><i class="fas fa-list-ol"></i> Étapes détaillées :</h3>
+                <div class="step-item"><i class="fas fa-keyboard"></i><span>Question posée par le client</span></div>
+                <div class="step-item"><i class="fas fa-network-wired"></i><span>Envoi à l'API Flask /chat</span></div>
+                <div class="step-item"><i class="fas fa-search"></i><span>Recherche RAG dans la documentation</span></div>
+                <div class="step-item"><i class="fas fa-puzzle-piece"></i><span>Contexte pertinent récupéré</span></div>
+                <div class="step-item"><i class="fas fa-clock"></i><span>Date/heure intégrées au contexte</span></div>
+                <div class="step-item"><i class="fas fa-comment-dots"></i><span>Réponse générée par Llama 3.1</span></div>
+            </div>
+        </div>
+
+        <!-- Workflow 3: Réservation -->
+        <div class="workflow-section workflow-3">
+            <div class="workflow-title">
+                <i class="fas fa-bed"></i>
+                <span>3. Création de Réservation par Voix</span>
+            </div>
+            <button class="play-btn" onclick="animateWorkflow(3)">
+                <i class="fas fa-play"></i> Animer ce workflow
+            </button>
+            <div class="workflow-diagram" id="workflow-3">
+                <div class="node node-client" data-id="1">
+                    <i class="fas fa-microphone node-icon"></i>
+                    <div class="node-title">Client parle</div>
+                    <div class="node-desc">Demande réservation</div>
+                </div>
+                <div class="arrow"><i class="fas fa-arrow-right"></i></div>
+                <div class="node node-api" data-id="2">
+                    <i class="fas fa-record-vinyl node-icon"></i>
+                    <div class="node-title">API /record</div>
+                    <div class="node-desc">Enregistrement audio</div>
+                </div>
+                <div class="arrow"><i class="fas fa-arrow-right"></i></div>
+                <div class="node node-service" data-id="3">
+                    <i class="fas fa-waveform-lines node-icon"></i>
+                    <div class="node-title">Whisper</div>
+                    <div class="node-desc">Transcription</div>
+                </div>
+                <div class="arrow"><i class="fas fa-arrow-right"></i></div>
+                <div class="node node-service" data-id="4">
+                    <i class="fas fa-brain node-icon"></i>
+                    <div class="node-title">Llama 3.1</div>
+                    <div class="node-desc">Extraction info</div>
+                </div>
+                <div class="arrow"><i class="fas fa-arrow-right"></i></div>
+                <div class="node node-api" data-id="5">
+                    <i class="fas fa-code node-icon"></i>
+                    <div class="node-title">FastAPI</div>
+                    <div class="node-desc">Création réservation</div>
+                </div>
+                <div class="arrow down"><i class="fas fa-arrow-down"></i></div>
+                <div class="node node-db" data-id="6">
+                    <i class="fas fa-database node-icon"></i>
+                    <div class="node-title">SQLite</div>
+                    <div class="node-desc">Sauvegarde</div>
+                </div>
+                <div class="arrow"><i class="fas fa-arrow-left"></i></div>
+                <div class="node node-service" data-id="7">
+                    <i class="fas fa-qrcode node-icon"></i>
+                    <div class="node-title">QR Code</div>
+                    <div class="node-desc">Génération</div>
+                </div>
+                <div class="arrow"><i class="fas fa-arrow-left"></i></div>
+                <div class="node node-notification" data-id="8">
+                    <i class="fas fa-envelope node-icon"></i>
+                    <div class="node-title">Email</div>
+                    <div class="node-desc">+ QR en PJ</div>
+                </div>
+            </div>
+            <div class="steps-list">
+                <h3><i class="fas fa-list-ol"></i> Étapes détaillées :</h3>
+                <div class="step-item"><i class="fas fa-microphone-alt"></i><span>Enregistrement audio de la demande</span></div>
+                <div class="step-item"><i class="fas fa-language"></i><span>Transcription avec Whisper (détection langue)</span></div>
+                <div class="step-item"><i class="fas fa-extract"></i><span>Extraction : nom, dates, type chambre</span></div>
+                <div class="step-item"><i class="fas fa-calendar-alt"></i><span>Conversion dates relatives → absolues</span></div>
+                <div class="step-item"><i class="fas fa-user-plus"></i><span>Création client si nécessaire</span></div>
+                <div class="step-item"><i class="fas fa-save"></i><span>Sauvegarde réservation en SQLite</span></div>
+                <div class="step-item"><i class="fas fa-qrcode"></i><span>Génération QR code PNG</span></div>
+                <div class="step-item"><i class="fas fa-paper-plane"></i><span>Envoi email au gestionnaire avec QR code</span></div>
+            </div>
+        </div>
+
+        <!-- Workflow 4: QR Code Verification -->
+        <div class="workflow-section workflow-4">
+            <div class="workflow-title">
+                <i class="fas fa-qrcode"></i>
+                <span>4. Vérification QR Code (Check-in)</span>
+            </div>
+            <button class="play-btn" onclick="animateWorkflow(4)">
+                <i class="fas fa-play"></i> Animer ce workflow
+            </button>
+            <div class="workflow-diagram" id="workflow-4">
+                <div class="node node-client" data-id="1">
+                    <i class="fas fa-mobile-alt node-icon"></i>
+                    <div class="node-title">Client présente</div>
+                    <div class="node-desc">QR Code</div>
+                </div>
+                <div class="arrow"><i class="fas fa-arrow-right"></i></div>
+                <div class="node node-robot" data-id="2">
+                    <i class="fas fa-camera node-icon"></i>
+                    <div class="node-title">Scan QR</div>
+                    <div class="node-desc">Camera/Image</div>
+                </div>
+                <div class="arrow"><i class="fas fa-arrow-right"></i></div>
+                <div class="node node-api" data-id="3">
+                    <i class="fas fa-server node-icon"></i>
+                    <div class="node-title">API Flask</div>
+                    <div class="node-desc">/scan_qr</div>
+                </div>
+                <div class="arrow"><i class="fas fa-arrow-right"></i></div>
+                <div class="node node-service" data-id="4">
+                    <i class="fas fa-search node-icon"></i>
+                    <div class="node-title">Décodage</div>
+                    <div class="node-desc">OpenCV</div>
+                </div>
+                <div class="arrow"><i class="fas fa-arrow-right"></i></div>
+                <div class="node node-api" data-id="5">
+                    <i class="fas fa-code node-icon"></i>
+                    <div class="node-title">FastAPI</div>
+                    <div class="node-desc">/verify_qr</div>
+                </div>
+                <div class="arrow down"><i class="fas fa-arrow-down"></i></div>
+                <div class="node node-db" data-id="6">
+                    <i class="fas fa-database node-icon"></i>
+                    <div class="node-title">SQLite</div>
+                    <div class="node-desc">Vérification</div>
+                </div>
+                <div class="arrow"><i class="fas fa-arrow-up"></i></div>
+                <div class="node node-service" data-id="7">
+                    <i class="fas fa-check-circle node-icon"></i>
+                    <div class="node-title">Confirmation</div>
+                    <div class="node-desc">Arrivée</div>
+                </div>
+            </div>
+            <div class="steps-list">
+                <h3><i class="fas fa-list-ol"></i> Étapes détaillées :</h3>
+                <div class="step-item"><i class="fas fa-qrcode"></i><span>Scan du QR code (caméra ou upload)</span></div>
+                <div class="step-item"><i class="fas fa-barcode"></i><span>Décodage avec OpenCV</span></div>
+                <div class="step-item"><i class="fas fa-id-card"></i><span>Récupération ID réservation</span></div>
+                <div class="step-item"><i class="fas fa-search"></i><span>Vérification dans SQLite via FastAPI</span></div>
+                <div class="step-item"><i class="fas fa-info-circle"></i><span>Affichage détails réservation + client</span></div>
+                <div class="step-item"><i class="fas fa-check"></i><span>Confirmation arrivée (statut → "arrivé")</span></div>
+            </div>
+        </div>
+
+        <!-- Légende -->
+        <div class="legend">
+            <h3 style="width: 100%; margin-bottom: 15px; text-align: center;">Légende</h3>
+            <div class="legend-item">
+                <i class="fas fa-user legend-icon" style="color: #3498db;"></i>
+                <span>Client / Utilisateur</span>
+            </div>
+            <div class="legend-item">
+                <i class="fas fa-robot legend-icon" style="color: #e74c3c;"></i>
+                <span>Robot Pepper / Interface</span>
+            </div>
+            <div class="legend-item">
+                <i class="fas fa-server legend-icon" style="color: #2ecc71;"></i>
+                <span>API (Flask / FastAPI)</span>
+            </div>
+            <div class="legend-item">
+                <i class="fas fa-brain legend-icon" style="color: #9b59b6;"></i>
+                <span>Services IA / Métier</span>
+            </div>
+            <div class="legend-item">
+                <i class="fas fa-database legend-icon" style="color: #f39c12;"></i>
+                <span>Stockage (DB / Fichiers)</span>
+            </div>
+            <div class="legend-item">
+                <i class="fas fa-envelope legend-icon" style="color: #1abc9c;"></i>
+                <span>Notifications</span>
+            </div>
+        </div>
+
+        <!-- Workflow Général -->
+        <div class="workflow-section" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-left: 5px solid #667eea; margin-top: 60px;">
+            <div class="workflow-title" style="color: white;">
+                <i class="fas fa-sitemap"></i>
+                <span>Workflow Général - Vue d'Ensemble du Système</span>
+            </div>
+            <p style="color: white; text-align: center; margin-bottom: 30px; font-size: 1.1em;">
+                Ce workflow montre comment tous les composants interagissent dans le système complet Robot Hotel
+            </p>
+            <button class="play-btn" onclick="animateGeneralWorkflow()" style="background: white; color: #667eea;">
+                <i class="fas fa-play"></i> Animer le workflow général
+            </button>
+            
+            <div class="workflow-diagram" id="workflow-general" style="padding: 60px 20px;">
+                <!-- Client arrive -->
+                <div style="width: 100%; text-align: center; margin-bottom: 40px;">
+                    <div class="node node-client" data-gen-id="start" style="margin: 0 auto;">
+                        <i class="fas fa-user-check node-icon"></i>
+                        <div class="node-title">Client arrive à l'hôtel</div>
+                        <div class="node-desc">Point d'entrée</div>
+                    </div>
+                </div>
+
+                <!-- Ligne 1: Reconnaissance -->
+                <div style="display: flex; justify-content: center; align-items: center; gap: 20px; width: 100%; margin-bottom: 30px; flex-wrap: wrap;">
+                    <div class="arrow down"><i class="fas fa-arrow-down"></i></div>
+                    <div class="node node-robot" data-gen-id="recognition" style="background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%); color: white;">
+                        <i class="fas fa-eye node-icon"></i>
+                        <div class="node-title">Reconnaissance Faciale</div>
+                        <div class="node-desc">Workflow 1</div>
+                    </div>
+                    <div class="arrow"><i class="fas fa-arrow-right"></i></div>
+                    <div class="node node-service" data-gen-id="client-info" style="background: linear-gradient(135deg, #9b59b6 0%, #8e44ad 100%); color: white;">
+                        <i class="fas fa-user-tag node-icon"></i>
+                        <div class="node-title">Client identifié</div>
+                        <div class="node-desc">Info récupérée</div>
+                    </div>
+                </div>
+
+                <!-- Branchement: Chat OU Réservation -->
+                <div style="display: flex; justify-content: space-around; align-items: flex-start; width: 100%; margin: 40px 0; gap: 30px; flex-wrap: wrap;">
+                    <!-- Branche Chat -->
+                    <div style="flex: 1; min-width: 300px;">
+                        <div class="arrow down" style="margin: 0 auto 20px;"><i class="fas fa-arrow-down"></i></div>
+                        <div class="node node-service" data-gen-id="chat" style="background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%); color: white; margin: 0 auto;">
+                            <i class="fas fa-comments node-icon"></i>
+                            <div class="node-title">Chatbot Interaction</div>
+                            <div class="node-desc">Workflow 2</div>
+                        </div>
+                        <div class="arrow down" style="margin: 10px auto;"><i class="fas fa-arrow-down"></i></div>
+                        <div class="node node-service" data-gen-id="chat-response" style="background: #9b59b6; color: white; margin: 0 auto;">
+                            <i class="fas fa-comment-dots node-icon"></i>
+                            <div class="node-title">Réponse contextuelle</div>
+                            <div class="node-desc">RAG + Llama 3.1</div>
+                        </div>
+                    </div>
+
+                    <!-- OU -->
+                    <div style="display: flex; align-items: center; font-size: 2em; color: white; font-weight: bold; margin: 50px 20px 0;">
+                        <span>OU</span>
+                    </div>
+
+                    <!-- Branche Réservation -->
+                    <div style="flex: 1; min-width: 300px;">
+                        <div class="arrow down" style="margin: 0 auto 20px;"><i class="fas fa-arrow-down"></i></div>
+                        <div class="node node-service" data-gen-id="reservation" style="background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%); color: white; margin: 0 auto;">
+                            <i class="fas fa-bed node-icon"></i>
+                            <div class="node-title">Création Réservation</div>
+                            <div class="node-desc">Workflow 3</div>
+                        </div>
+                        <div class="arrow down" style="margin: 10px auto;"><i class="fas fa-arrow-down"></i></div>
+                        <div class="node node-service" data-gen-id="audio-process" style="background: #9b59b6; color: white; margin: 0 auto;">
+                            <i class="fas fa-microphone-alt node-icon"></i>
+                            <div class="node-title">Audio → Transcription</div>
+                            <div class="node-desc">Whisper</div>
+                        </div>
+                        <div class="arrow down" style="margin: 10px auto;"><i class="fas fa-arrow-down"></i></div>
+                        <div class="node node-service" data-gen-id="extract" style="background: #9b59b6; color: white; margin: 0 auto;">
+                            <i class="fas fa-brain node-icon"></i>
+                            <div class="node-title">Extraction Info</div>
+                            <div class="node-desc">Llama 3.1</div>
+                        </div>
+                        <div class="arrow down" style="margin: 10px auto;"><i class="fas fa-arrow-down"></i></div>
+                        <div class="node node-api" data-gen-id="save-reservation" style="background: #2ecc71; color: white; margin: 0 auto;">
+                            <i class="fas fa-database node-icon"></i>
+                            <div class="node-title">Sauvegarde</div>
+                            <div class="node-desc">SQLite via FastAPI</div>
+                        </div>
+                        <div class="arrow down" style="margin: 10px auto;"><i class="fas fa-arrow-down"></i></div>
+                        <div class="node node-service" data-gen-id="qr-email" style="background: linear-gradient(135deg, #1abc9c 0%, #16a085 100%); color: white; margin: 0 auto;">
+                            <i class="fas fa-envelope-open node-icon"></i>
+                            <div class="node-title">QR Code + Email</div>
+                            <div class="node-desc">Notification gestionnaire</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Convergence: Check-in -->
+                <div style="width: 100%; text-align: center; margin-top: 40px;">
+                    <div class="arrow down" style="margin: 0 auto 20px;"><i class="fas fa-arrow-down"></i></div>
+                    <div class="node node-service" data-gen-id="checkin" style="background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%); color: white; margin: 0 auto; max-width: 300px;">
+                        <i class="fas fa-qrcode node-icon"></i>
+                        <div class="node-title">Check-in Client</div>
+                        <div class="node-desc">Workflow 4</div>
+                    </div>
+                    <div class="arrow down" style="margin: 10px auto;"><i class="fas fa-arrow-down"></i></div>
+                    <div class="node node-api" data-gen-id="verify" style="background: #2ecc71; color: white; margin: 0 auto; max-width: 300px;">
+                        <i class="fas fa-check-circle node-icon"></i>
+                        <div class="node-title">Vérification QR</div>
+                        <div class="node-desc">FastAPI /verify_qr</div>
+                    </div>
+                    <div class="arrow down" style="margin: 10px auto;"><i class="fas fa-arrow-down"></i></div>
+                    <div class="node node-service" data-gen-id="complete" style="background: linear-gradient(135deg, #27ae60 0%, #229954 100%); color: white; margin: 0 auto; max-width: 300px;">
+                        <i class="fas fa-check-double node-icon"></i>
+                        <div class="node-title">Arrivée confirmée</div>
+                        <div class="node-desc">Statut mis à jour</div>
+                    </div>
+                </div>
+
+                <!-- Services backend en arrière-plan -->
+                <div style="margin-top: 60px; padding: 30px; background: rgba(255,255,255,0.1); border-radius: 15px;">
+                    <h4 style="color: white; text-align: center; margin-bottom: 20px; font-size: 1.3em;">
+                        <i class="fas fa-cogs"></i> Services Backend Actifs
+                    </h4>
+                    <div style="display: flex; justify-content: center; gap: 30px; flex-wrap: wrap;">
+                        <div class="node node-api" data-gen-id="flask" style="background: rgba(255,255,255,0.9);">
+                            <i class="fas fa-server node-icon"></i>
+                            <div class="node-title">API Flask</div>
+                            <div class="node-desc">Port 5000</div>
+                        </div>
+                        <div class="node node-api" data-gen-id="fastapi" style="background: rgba(255,255,255,0.9);">
+                            <i class="fas fa-code node-icon"></i>
+                            <div class="node-title">API FastAPI</div>
+                            <div class="node-desc">Port 8000</div>
+                        </div>
+                        <div class="node node-service" data-gen-id="ai-services" style="background: rgba(255,255,255,0.9);">
+                            <i class="fas fa-brain node-icon"></i>
+                            <div class="node-title">Services IA</div>
+                            <div class="node-desc">Tous actifs</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="steps-list" style="background: rgba(255,255,255,0.95); margin-top: 30px;">
+                <h3 style="color: #2c3e50;"><i class="fas fa-info-circle"></i> Explication du Workflow Général</h3>
+                <div class="step-item" style="border-left-color: #667eea;">
+                    <i class="fas fa-1" style="color: #667eea;"></i>
+                    <span><strong>Point d'entrée</strong> : Le client arrive à l'hôtel et interagit avec le système</span>
+                </div>
+                <div class="step-item" style="border-left-color: #e74c3c;">
+                    <i class="fas fa-2" style="color: #e74c3c;"></i>
+                    <span><strong>Reconnaissance</strong> : Le système identifie le client (Workflow 1) et récupère ses informations</span>
+                </div>
+                <div class="step-item" style="border-left-color: #e74c3c;">
+                    <i class="fas fa-3" style="color: #e74c3c;"></i>
+                    <span><strong>Interactions possibles</strong> : Le client peut soit poser des questions au chatbot (Workflow 2), soit créer une réservation (Workflow 3)</span>
+                </div>
+                <div class="step-item" style="border-left-color: #2ecc71;">
+                    <i class="fas fa-4" style="color: #2ecc71;"></i>
+                    <span><strong>Réservation</strong> : Si le client crée une réservation, le système traite l'audio, extrait les infos, sauvegarde et envoie un email avec QR code</span>
+                </div>
+                <div class="step-item" style="border-left-color: #f39c12;">
+                    <i class="fas fa-5" style="color: #f39c12;"></i>
+                    <span><strong>Check-in</strong> : Lors de l'arrivée, le client présente son QR code qui est vérifié (Workflow 4)</span>
+                </div>
+                <div class="step-item" style="border-left-color: #27ae60;">
+                    <i class="fas fa-6" style="color: #27ae60;"></i>
+                    <span><strong>Confirmation</strong> : L'arrivée est confirmée, le statut de réservation est mis à jour, et le client peut récupérer ses clés</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Technologies -->
+        <div style="margin-top: 40px; padding: 30px; background: #f8f9fa; border-radius: 15px;">
+            <h3 style="margin-bottom: 20px; color: #2c3e50;"><i class="fas fa-cogs"></i> Technologies Utilisées</h3>
+            <div style="text-align: center;">
+                <span class="tech-badge" style="background: #9b59b6;">Llama 3.1</span>
+                <span class="tech-badge" style="background: #3498db;">Whisper</span>
+                <span class="tech-badge" style="background: #e74c3c;">YOLOv8</span>
+                <span class="tech-badge" style="background: #2ecc71;">Flask</span>
+                <span class="tech-badge" style="background: #2ecc71;">FastAPI</span>
+                <span class="tech-badge" style="background: #f39c12;">SQLite</span>
+                <span class="tech-badge" style="background: #9b59b6;">face_recognition</span>
+                <span class="tech-badge" style="background: #1abc9c;">OpenCV</span>
+                <span class="tech-badge" style="background: #3498db;">Streamlit</span>
+                <span class="tech-badge" style="background: #9b59b6;">LlamaIndex</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function animateWorkflow(workflowNum) {
+            const workflow = document.getElementById(`workflow-${workflowNum}`);
+            const nodes = workflow.querySelectorAll('.node');
+            
+            // Retirer toutes les classes active
+            nodes.forEach(node => node.classList.remove('active'));
+            
+            // Animer chaque node séquentiellement
+            nodes.forEach((node, index) => {
+                setTimeout(() => {
+                    node.classList.add('active');
+                    setTimeout(() => {
+                        node.classList.remove('active');
+                    }, 800);
+                }, index * 600);
+            });
+        }
+
+        // Animation automatique au chargement
+        window.addEventListener('load', () => {
+            setTimeout(() => {
+                animateWorkflow(1);
+            }, 1000);
+        });
+
+        // Ajouter des interactions au survol
+        document.querySelectorAll('.node').forEach(node => {
+            node.addEventListener('click', function() {
+                this.classList.toggle('active');
+                setTimeout(() => {
+                    this.classList.remove('active');
+                }, 1000);
+            });
+        });
+
+        // Animation du workflow général
+        function animateGeneralWorkflow() {
+            const workflow = document.getElementById('workflow-general');
+            const nodes = workflow.querySelectorAll('.node[data-gen-id]');
+            
+            // Ordre d'animation du workflow général
+            const animationOrder = [
+                'start',
+                'recognition',
+                'client-info',
+                'chat',
+                'reservation',
+                'chat-response',
+                'audio-process',
+                'extract',
+                'save-reservation',
+                'qr-email',
+                'checkin',
+                'verify',
+                'complete',
+                'flask',
+                'fastapi',
+                'ai-services'
+            ];
+            
+            // Retirer toutes les classes active
+            nodes.forEach(node => node.classList.remove('active'));
+            
+            // Animer chaque node dans l'ordre
+            animationOrder.forEach((id, index) => {
+                const node = workflow.querySelector(`[data-gen-id="${id}"]`);
+                if (node) {
+                    setTimeout(() => {
+                        node.classList.add('active');
+                        setTimeout(() => {
+                            node.classList.remove('active');
+                        }, 1000);
+                    }, index * 400);
+                }
+            });
+        }
+
+        // Animation automatique du workflow général après un délai
+        setTimeout(() => {
+            // Ne pas animer automatiquement, laisser l'utilisateur déclencher
+        }, 5000);
+    </script>
+</body>
+</html>
+

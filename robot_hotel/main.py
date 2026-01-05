@@ -4,8 +4,14 @@ from services.chat import chat
 from services.location import get_heure_date
 from services.rag import init_rag
 from services.whisper import charge_model_whisper, transcribe_audio
-from services.record import record_until_silence
+from services.record import record_until_silence, start_manual_recording, stop_manual_recording, get_recording_status
 from services.make_reservation import make_reservation
+from services.email import (
+    load_email_config,
+    save_email_config,
+    get_manager_email,
+    update_manager_email
+)
 from services.face_detection import (
     init_face_detection,
     detect_faces_in_image,
@@ -261,6 +267,79 @@ def handle_record():
               type: string
     """
     return record_until_silence()
+
+
+@app.route("/record/start", methods=["POST"])
+def handle_record_start():
+    """
+    Démarre un enregistrement audio manuel
+    ---
+    tags:
+      - Audio
+    produces:
+      - application/json
+    responses:
+      200:
+        description: Enregistrement démarré avec succès
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+            status:
+              type: string
+      400:
+        description: Un enregistrement est déjà en cours
+    """
+    return start_manual_recording()
+
+
+@app.route("/record/stop", methods=["POST"])
+def handle_record_stop():
+    """
+    Arrête l'enregistrement audio manuel en cours et sauvegarde le fichier
+    ---
+    tags:
+      - Audio
+    produces:
+      - application/json
+    responses:
+      200:
+        description: Enregistrement terminé avec succès
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+            file:
+              type: string
+      400:
+        description: Aucun enregistrement en cours
+    """
+    return stop_manual_recording()
+
+
+@app.route("/record/status", methods=["GET"])
+def handle_record_status():
+    """
+    Retourne l'état actuel de l'enregistrement
+    ---
+    tags:
+      - Audio
+    produces:
+      - application/json
+    responses:
+      200:
+        description: État de l'enregistrement
+        schema:
+          type: object
+          properties:
+            recording:
+              type: boolean
+            file:
+              type: string
+    """
+    return get_recording_status()
 
 
 @app.route("/make_reservation", methods=["POST"])
@@ -1039,6 +1118,128 @@ def handle_scan_qr_stream():
             
     except Exception as e:
         return jsonify({"detected": False, "success": False, "error": str(e)}), 200
+
+@app.route("/email/config", methods=["GET"])
+def get_email_config():
+    """
+    Récupère la configuration email
+    ---
+    tags:
+      - System
+    produces:
+      - application/json
+    responses:
+      200:
+        description: Configuration email
+        schema:
+          type: object
+          properties:
+            manager_email:
+              type: string
+            smtp_server:
+              type: string
+            smtp_port:
+              type: integer
+            email_enabled:
+              type: boolean
+    """
+    config = load_email_config()
+    # Ne pas exposer le mot de passe SMTP
+    safe_config = {
+        "manager_email": config.get("manager_email", ""),
+        "smtp_server": config.get("smtp_server", ""),
+        "smtp_port": config.get("smtp_port", 587),
+        "email_enabled": config.get("email_enabled", True),
+        "smtp_username": config.get("smtp_username", ""),
+        "smtp_password_configured": bool(config.get("smtp_password", ""))
+    }
+    return jsonify(safe_config)
+
+
+@app.route("/email/config", methods=["PUT", "POST"])
+def update_email_config():
+    """
+    Met à jour la configuration email
+    ---
+    tags:
+      - System
+    consumes:
+      - application/json
+    produces:
+      - application/json
+    parameters:
+      - in: body
+        name: config
+        schema:
+          type: object
+          properties:
+            manager_email:
+              type: string
+            smtp_server:
+              type: string
+            smtp_port:
+              type: integer
+            smtp_username:
+              type: string
+            smtp_password:
+              type: string
+            email_enabled:
+              type: boolean
+    responses:
+      200:
+        description: Configuration mise à jour avec succès
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            message:
+              type: string
+      400:
+        description: Erreur de validation
+    """
+    try:
+        data = request.get_json()
+        config = load_email_config()
+        
+        # Mettre à jour les champs fournis
+        if "manager_email" in data:
+            email = data["manager_email"].strip()
+            if email and '@' in email:
+                config["manager_email"] = email
+            else:
+                return jsonify({"success": False, "error": "Adresse email invalide"}), 400
+        
+        if "smtp_server" in data:
+            config["smtp_server"] = data["smtp_server"].strip()
+        
+        if "smtp_port" in data:
+            config["smtp_port"] = int(data["smtp_port"])
+        
+        if "smtp_username" in data:
+            config["smtp_username"] = data["smtp_username"].strip()
+        
+        if "smtp_password" in data:
+            # Si le mot de passe est fourni, le mettre à jour
+            # Si c'est une chaîne vide ou "*", ne pas le modifier
+            password = data["smtp_password"].strip()
+            if password and password != "*":
+                config["smtp_password"] = password
+        
+        if "email_enabled" in data:
+            config["email_enabled"] = bool(data["email_enabled"])
+        
+        save_email_config(config)
+        
+        return jsonify({
+            "success": True,
+            "message": "Configuration email mise à jour avec succès",
+            "manager_email": config.get("manager_email")
+        })
+        
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+
 
 @app.route("/")
 def home():

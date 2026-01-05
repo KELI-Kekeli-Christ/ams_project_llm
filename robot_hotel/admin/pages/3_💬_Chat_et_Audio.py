@@ -100,31 +100,58 @@ with tab2:
     if uploaded_audio is not None:
         st.audio(uploaded_audio, format='audio/wav')
         
+        # Afficher les informations du fichier
+        st.info(f"📁 Fichier: {uploaded_audio.name} ({uploaded_audio.size} octets)")
+        
         if st.button("📝 Transcrire l'audio", type="primary", use_container_width=True):
-            with st.spinner("⏳ Transcription en cours... Cela peut prendre quelques secondes."):
-                uploaded_audio.seek(0)
-                result = transcribe_audio(uploaded_audio)
-            
-            if "error" in result:
-                st.error(f"❌ Erreur: {result['error']}")
-            else:
-                text = result.get('text', '')
-                language = result.get('language', '')
+            try:
+                with st.spinner("⏳ Transcription en cours... Cela peut prendre quelques secondes."):
+                    # S'assurer que le fichier est à la position 0 (début)
+                    uploaded_audio.seek(0)
+                    
+                    # Créer un BytesIO pour garantir que le fichier est bien passé
+                    import io
+                    audio_bytes = uploaded_audio.read()
+                    audio_file = io.BytesIO(audio_bytes)
+                    audio_file.name = uploaded_audio.name  # Préserver le nom du fichier
+                    
+                    # Réinitialiser le pointeur
+                    audio_file.seek(0)
+                    
+                    result = transcribe_audio(audio_file)
                 
-                st.success("✅ Transcription réussie!")
-                
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.metric("🌐 Langue détectée", language.upper() if language else "N/A")
-                with col2:
-                    st.metric("📏 Longueur", f"{len(text)} caractères")
-                
-                st.subheader("📄 Texte transcrit:")
-                st.text_area("", value=text, height=200, label_visibility="collapsed")
-                
-                # Bouton pour copier
-                if st.button("📋 Copier le texte"):
-                    st.write("✅ Texte copié dans le presse-papiers!")
+                if result and "error" not in result:
+                    text = result.get('text', '')
+                    language = result.get('language', '')
+                    
+                    if text:
+                        st.success("✅ Transcription réussie!")
+                        
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.metric("🌐 Langue détectée", language.upper() if language else "N/A")
+                        with col2:
+                            st.metric("📏 Longueur", f"{len(text)} caractères")
+                        
+                        st.subheader("📄 Texte transcrit:")
+                        st.text_area("", value=text, height=200, label_visibility="collapsed", key="transcribed_text")
+                        
+                        # Bouton pour copier
+                        if st.button("📋 Copier le texte", key="copy_text_btn"):
+                            st.write("✅ Texte copié dans le presse-papiers!")
+                    else:
+                        st.warning("⚠️ Aucun texte n'a été transcrit. Le fichier audio est peut-être trop court ou silencieux.")
+                else:
+                    error_msg = result.get('error', 'Erreur inconnue') if result else 'Aucune réponse du serveur'
+                    st.error(f"❌ Erreur: {error_msg}")
+                    if result:
+                        with st.expander("🔍 Détails de l'erreur"):
+                            st.json(result)
+            except Exception as e:
+                st.error(f"❌ Erreur lors de la transcription: {str(e)}")
+                import traceback
+                with st.expander("🔍 Détails de l'erreur"):
+                    st.code(traceback.format_exc())
 
 # Tab 3: Enregistrement
 with tab3:
@@ -132,15 +159,16 @@ with tab3:
     
     st.warning("⚠️ **Note:** Cette fonctionnalité nécessite un microphone connecté et des permissions appropriées.")
     
-    st.info("💡 Cliquez sur le bouton pour démarrer l'enregistrement. L'enregistrement s'arrêtera automatiquement après détection d'un silence.")
+    st.info("💡 Cliquez sur le bouton pour démarrer l'enregistrement. L'enregistrement s'arrêtera automatiquement après **3 secondes de silence**.")
+    st.warning("⚠️ **Astuce:** L'enregistrement est maintenant configuré pour permettre des pauses naturelles lors de la parole. Il s'arrêtera seulement après 3 secondes de silence complet.")
     
     if st.button("🎙️ Démarrer l'Enregistrement", type="primary", use_container_width=True):
-        with st.spinner("🎤 Enregistrement en cours... Parlez maintenant. L'enregistrement s'arrêtera automatiquement après un silence."):
+        with st.spinner("🎤 Enregistrement en cours... Parlez maintenant. Vous pouvez faire des pauses naturelles. L'enregistrement s'arrêtera après 3 secondes de silence complet."):
             result = record_audio()
         
-        if "error" in result:
+        if result and "error" in result:
             st.error(f"❌ Erreur: {result['error']}")
-        else:
+        elif result:
             message = result.get('message', '')
             file_path = result.get('file', '')
             
@@ -151,9 +179,38 @@ with tab3:
                 st.success("🎉 Enregistrement terminé avec succès!")
                 
                 # Option pour transcrire directement
-                if st.button("📝 Transcrire cet enregistrement"):
-                    # Ici, il faudrait lire le fichier et le transcrire
-                    st.info("ℹ️ Utilisez l'onglet 'Transcription Audio' pour transcrire ce fichier.")
+                if st.button("📝 Transcrire cet enregistrement", key="transcribe_recorded"):
+                    # Essayer de lire et transcrire le fichier
+                    try:
+                        import io
+                        script_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+                        full_path = os.path.join(script_dir, file_path)
+                        
+                        if os.path.exists(full_path):
+                            with open(full_path, 'rb') as f:
+                                audio_file = io.BytesIO(f.read())
+                                audio_file.name = os.path.basename(full_path)
+                                
+                                with st.spinner("⏳ Transcription en cours..."):
+                                    transcribe_result = transcribe_audio(audio_file)
+                                
+                                if transcribe_result and "error" not in transcribe_result:
+                                    text = transcribe_result.get('text', '')
+                                    if text:
+                                        st.success("✅ Transcription réussie!")
+                                        st.text_area("Texte transcrit:", value=text, height=200)
+                                    else:
+                                        st.warning("⚠️ Aucun texte n'a été transcrit.")
+                                else:
+                                    error_msg = transcribe_result.get('error', 'Erreur inconnue') if transcribe_result else 'Aucune réponse'
+                                    st.error(f"❌ Erreur lors de la transcription: {error_msg}")
+                        else:
+                            st.error(f"❌ Fichier non trouvé: {full_path}")
+                    except Exception as e:
+                        st.error(f"❌ Erreur: {str(e)}")
+                        st.info("ℹ️ Utilisez l'onglet 'Transcription Audio' pour télécharger et transcrire ce fichier.")
+            else:
+                st.warning("⚠️ Aucun fichier retourné par l'enregistrement.")
 
 # Tab 4: Heure et Lieu
 with tab4:

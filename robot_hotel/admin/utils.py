@@ -37,11 +37,20 @@ def make_api_request(
             response = requests.get(url, timeout=30)
         elif method == "POST":
             if files:
-                response = requests.post(url, data=data, files=files, timeout=60)
+                # S'assurer que les fichiers sont correctement positionnés au début
+                for key, file_obj in files.items():
+                    if hasattr(file_obj, 'seek'):
+                        file_obj.seek(0)
+                response = requests.post(url, data=data, files=files, timeout=120)
             elif json_data:
                 response = requests.post(url, json=json_data, timeout=30)
             else:
                 response = requests.post(url, data=data, timeout=30)
+        elif method == "PUT":
+            if json_data:
+                response = requests.put(url, json=json_data, timeout=30)
+            else:
+                response = requests.put(url, data=data, timeout=30)
         elif method == "DELETE":
             response = requests.delete(url, timeout=30)
         else:
@@ -170,4 +179,12 @@ def stop_qr_stream() -> Dict:
 def get_qr_stream_status() -> Dict:
     """Récupère le statut et les résultats du stream QR code"""
     return make_api_request("GET", "/scan_qr/stream/status")
+
+def get_email_config() -> Dict:
+    """Récupère la configuration email"""
+    return make_api_request("GET", "/email/config")
+
+def update_email_config(config: Dict) -> Dict:
+    """Met à jour la configuration email"""
+    return make_api_request("PUT", "/email/config", json_data=config)
 
