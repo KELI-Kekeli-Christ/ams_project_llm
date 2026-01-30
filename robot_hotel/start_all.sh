@@ -107,7 +107,7 @@ start_flask() {
     cd "$SCRIPT_DIR"
     nohup python main.py > "$LOG_DIR/flask.log" 2>&1 &
     echo $! >> "$PID_FILE"
-    sleep 3
+    sleep 10
     if check_port $FLASK_PORT; then
         print_success "Flask démarré → http://localhost:$FLASK_PORT"
     else

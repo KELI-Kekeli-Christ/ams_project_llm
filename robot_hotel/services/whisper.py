@@ -1,81 +1,57 @@
-import whisper
-import tempfile
 import os
 import torch
+import tempfile
+from faster_whisper import WhisperModel
 
-
-def charge_model_whisper(model_size="medium", force_cpu=True):
+def charge_model_whisper(model_size="small", force_cpu=False):
     """
-    Charge le modèle Whisper.
+    Charge le modèle Faster-Whisper pour une inférence rapide.
     
     Args:
-        model_size (str): Taille du modèle ("tiny", "base", "small", "medium", "large")
-                         Par défaut "medium". Utiliser "small" ou "base" si problème de mémoire.
-        force_cpu (bool): Forcer l'utilisation du CPU (par défaut True pour éviter les problèmes GPU)
-    
-    Returns:
-        whisper.Whisper: Le modèle Whisper chargé.
+        model_size (str): "tiny", "base", "small", "medium". 
+                         "small" est le meilleur compromis vitesse/précision pour Pepper.
+        force_cpu (bool): Si True, utilise le CPU.
     """
-    # Déterminer le device à utiliser
-    if force_cpu:
-        device = "cpu"
-        print(f"⚠️  Mode CPU forcé pour éviter les problèmes de mémoire GPU")
+    # Détection automatique du device et de la quantification
+    if torch.cuda.is_available() and not force_cpu:
+        device = "cuda"
+        compute_type = "float16" # Très rapide sur GPU
     else:
-        device = "cpu"  # Par défaut CPU pour être sûr
-        # Optionnel: essayer GPU si disponible et assez de mémoire
-        # if torch.cuda.is_available():
-        #     try:
-        #         free_memory = torch.cuda.get_device_properties(0).total_memory - torch.cuda.memory_allocated(0)
-        #         if free_memory > 2 * 1024 * 1024 * 1024:  # Plus de 2GB libre
-        #             device = "cuda"
-        #     except:
-        #         pass
+        device = "cpu"
+        compute_type = "int8"    # Quantification pour accélérer le CPU sans perdre trop de précision
     
     try:
-        print(f"📥 Chargement du modèle Whisper '{model_size}' sur {device.upper()}...")
-        model = whisper.load_model(model_size, device=device)
-        print(f"✅ Modèle Whisper '{model_size}' chargé avec succès sur {device.upper()}")
+        print(f"📥 Chargement de Faster-Whisper '{model_size}' sur {device.upper()} ({compute_type})...")
+        # Utilisation de WhisperModel de faster-whisper
+        model = WhisperModel(model_size, device=device, compute_type=compute_type)
+        print(f"✅ Modèle chargé avec succès.")
         return model
     except Exception as e:
-        print(f"❌ Erreur lors du chargement du modèle '{model_size}': {e}")
-        if model_size != "base":
-            print(f"⚠️  Tentative avec un modèle plus petit ('base')...")
-            try:
-                model = whisper.load_model("base", device="cpu")
-                print(f"✅ Modèle Whisper 'base' chargé avec succès sur CPU (modèle de secours)")
-                return model
-            except Exception as e2:
-                print(f"❌ Impossible de charger même le modèle 'base': {e2}")
-                raise
-        else:
-            raise
+        print(f"❌ Erreur : {e}")
+        # Secours sur le modèle 'base' en cas d'erreur
+        return WhisperModel("base", device="cpu", compute_type="int8")
 
 def transcribe_audio(model, file): 
     """
-    Transcrit un fichier audio en texte en utilisant le modèle Whisper.
-    La langue est détectée automatiquement.
-    
-    Args:
-        model (whisper.Whisper): Le modèle Whisper chargé.
-        file: Le fichier audio à transcrire.
-    
-    Returns:
-        dict: Un dictionnaire contenant le texte transcrit et la langue détectée.
+    Transcrit l'audio de manière optimisée.
     """
-
-    # Utiliser delete=False pour que le fichier existe pendant la transcription
-    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
+    # Sauvegarde temporaire efficace
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
         file.save(tmp.name)
         tmp_path = tmp.name
     
     try:
-        # Détection automatique de la langue (pas de paramètre language)
-        result = model.transcribe(tmp_path)
-        text = result.get("text", "")
-        language = result.get("language", "")
+        # beam_size=1 est beaucoup plus rapide pour du temps réel (greedy decoding)
+        # vad_filter=True retire automatiquement les silences pour gagner du temps
+        segments, info = model.transcribe(tmp_path, beam_size=1, vad_filter=True)
+        
+        # On concatène les segments (faster-whisper renvoie un générateur)
+        text = " ".join([segment.text for segment in segments]).strip()
+        
+        return {
+            "text": text, 
+            "language": info.language
+        }
     finally:
-        # Nettoyer le fichier temporaire
         if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
-
-    return {"text": text, "language": language}
+            os.remove(tmp_path)

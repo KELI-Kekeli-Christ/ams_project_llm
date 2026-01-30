@@ -1,82 +1,81 @@
-# services/rag.py
-from llama_index.core import VectorStoreIndex, SimpleDirectoryReader
-from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+import os
+import torch
 from pathlib import Path
+from llama_index.core import (
+    VectorStoreIndex, 
+    SimpleDirectoryReader, 
+    StorageContext, 
+    load_index_from_storage,
+    Settings
+)
+from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 
-DOCS_DIR = Path(__file__).parent.parent / "docs"
+# Configuration des chemins
+BASE_DIR = Path(__file__).parent.parent
+DOCS_DIR = BASE_DIR / "docs"
+STORAGE_DIR = BASE_DIR / "storage"  # Dossier pour sauvegarder l'index
+
 _rag_index = None
+_retriever = None
 
 def init_rag():
-    global _rag_index
-    print("\n" + "="*60)
-    print("INITIALISATION RAG")
-    print("="*60)
+    global _rag_index, _retriever
     
     if _rag_index is not None:
-        print("RAG déjà initialisé.")
         return _rag_index
 
-    if not DOCS_DIR.exists():
-        print(f"ERREUR : Dossier 'docs' introuvable : {DOCS_DIR}")
-        return None
-
-    print(f"Chargement des documents depuis : {DOCS_DIR}")
-    documents = SimpleDirectoryReader(str(DOCS_DIR)).load_data()
-    
-    if not documents:
-        print("ERREUR : Aucun document trouvé dans 'docs/'")
-        return None
-
-    print(f"{len(documents)} documents chargés :")
-    for doc in documents[:3]:
-        fname = doc.metadata.get('file_name', 'inconnu')
-        preview = doc.text[:100].replace('\n', ' ')
-        print(f"   • {fname} → {preview}...")
-
-    print("Chargement du modèle d'embedding...")
-    embed_model = HuggingFaceEmbedding(
+    # 1. Configuration globale (évite de passer le modèle partout)
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    Settings.embed_model = HuggingFaceEmbedding(
         model_name="sentence-transformers/all-MiniLM-L6-v2",
-        device="cpu"
+        device=device
     )
-    print("Embedding OK")
+    Settings.chunk_size = 512  # Chunks plus petits = recherche plus rapide et précise
 
-    print("Indexation en cours...")
-    _rag_index = VectorStoreIndex.from_documents(documents, embed_model=embed_model)
-    print("INDEX RAG PRÊT !\n")
+    # 2. Stratégie de chargement (Persistance)
+    if STORAGE_DIR.exists() and any(STORAGE_DIR.iterdir()):
+        print("💾 Chargement de l'index depuis le stockage local...")
+        storage_context = StorageContext.from_defaults(persist_dir=str(STORAGE_DIR))
+        _rag_index = load_index_from_storage(storage_context)
+    else:
+        print("⚡ Premier lancement : Indexation des documents...")
+        if not DOCS_DIR.exists():
+            print(f"❌ Erreur : {DOCS_DIR} introuvable.")
+            return None
+        
+        documents = SimpleDirectoryReader(str(DOCS_DIR)).load_data()
+        _rag_index = VectorStoreIndex.from_documents(documents)
+        
+        # Sauvegarde pour le prochain démarrage
+        STORAGE_DIR.mkdir(exist_ok=True)
+        _rag_index.storage_context.persist(persist_dir=str(STORAGE_DIR))
+        print(f"✅ Index créé et sauvegardé dans {STORAGE_DIR}")
+
+    # 3. Pré-calcul du retriever (Gain de temps à l'exécution)
+    _retriever = _rag_index.as_retriever(similarity_top_k=2) # 2 c'est souvent assez pour Pepper
+    
     return _rag_index
 
-def get_rag_context(user_msg: str, top_k: int = 3) -> dict:
-    print(f"\nRECHERCHE RAG pour : '{user_msg}'")
-    if _rag_index is None:
-        print("Index non initialisé → pas de contexte")
-        return {"text": "", "used": False, "debug": "RAG non initialisé"}
+def get_rag_context(user_msg: str,top_k: int = 3) -> dict:
+    """Recherche ultra-rapide avec retriever pré-chargé."""
+    if _retriever is None:
+        init_rag()
 
     try:
-        retriever = _rag_index.as_retriever(similarity_top_k=top_k)
-        nodes = retriever.retrieve(user_msg)
+        # Recherche directe sur le retriever pré-initialisé
+        nodes = _retriever.retrieve(user_msg)
         
         if not nodes:
-            print("Aucun résultat trouvé (similarité trop faible)")
-            return {"text": "", "used": False, "debug": "Aucun résultat"}
+            return {"text": "", "used": False}
 
-        print(f"{len(nodes)} résultats trouvés :")
-        context_parts = []
-        for i, node in enumerate(nodes):
-            text = node.text.strip()
-            score = node.score
-            file = node.metadata.get('file_name', 'inconnu')
-            print(f"   [{i+1}] Score: {score:.3f} | {file}")
-            print(f"       → {text[:150]}...")
-            context_parts.append(text)
+        # Construction concise du contexte
+        context = "\n\n".join([n.text.strip() for n in nodes])
         
-        context = "\n\n".join(context_parts)[:3000]
-        print(f"Contexte final envoyé ({len(context)} caractères)")
         return {
-            "text": context,
-            "used": True,
-            "debug": f"{len(nodes)} résultats, top_k={top_k}"
+            "text": context[:2500], # On limite pour ne pas ralentir le LLM
+            "used": True
         }
     
     except Exception as e:
-        print(f"ERREUR RAG : {e}")
-        return {"text": "", "used": False, "debug": str(e)}
+        print(f"⚠️ Erreur RAG : {e}")
+        return {"text": "", "used": False}
