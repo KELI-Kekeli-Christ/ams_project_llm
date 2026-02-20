@@ -1,68 +1,13 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-Helper utilities for pepper_test module.
-Contains safe_print, escape_html, transliterate_to_ascii, force_utf8, etc.
+Utilitaires : affichage, encodage, réseau
 """
-
 import sys
 import unicodedata
 
-
-def safe_print(msg, *args):
-    """Print safely to stdout handling environments with ASCII-only encodings.
-
-    Compatible with Python 2 and 3. Avoids using `print(..., **kwargs)` which
-    can be a syntax error under Python 2 where `print` is a statement.
-    """
-    try:
-        text = msg.format(*args) if args else msg
-    except Exception:
-        try:
-            text = str(msg)
-        except Exception:
-            text = repr(msg)
-
-    try:
-        # Prefer writing str to stdout (Python 3)
-        sys.stdout.write(text + "\n")
-        sys.stdout.flush()
-    except UnicodeEncodeError:
-        try:
-            # Try writing bytes to buffer if available (Python 3)
-            if hasattr(sys.stdout, "buffer"):
-                sys.stdout.buffer.write(text.encode("utf-8", errors="replace") + b"\n")
-                sys.stdout.buffer.flush()
-            else:
-                # Python 2 fallback: encode to utf-8 then write
-                sys.stdout.write(text.encode("utf-8", errors="replace") + "\n")
-                sys.stdout.flush()
-        except Exception:
-            try:
-                sys.stdout.write(repr(text) + "\n")
-                sys.stdout.flush()
-            except Exception:
-                pass
-
-
-def transliterate_to_ascii(text):
-    """Return an ASCII-only approximation of `text` by removing diacritics."""
-    try:
-        if isinstance(text, bytes):
-            text = text.decode('utf-8', errors='ignore')
-        nkfd = unicodedata.normalize('NFKD', text)
-        return nkfd.encode('ascii', 'ignore').decode('ascii')
-    except Exception:
-        try:
-            return str(text)
-        except Exception:
-            return repr(text)
-
-
-# HTML escape helper with compatibility fallback (Python2/3)
+# HTML escape (Python2/3)
 try:
     import html as _html_mod
-
     def escape_html(s):
         if s is None:
             return ''
@@ -72,7 +17,6 @@ try:
 except Exception:
     try:
         import cgi as _cgi
-
         def escape_html(s):
             if s is None:
                 return ''
@@ -86,26 +30,75 @@ except Exception:
             if isinstance(s, bytes):
                 s = s.decode('utf-8', errors='ignore')
             s = str(s)
-            return s.replace('&', '&amp;').replace('<', '<').replace('>', '>').replace('"', '"').replace("'", '&#x27;')
+            return s.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;').replace("'", '&#x27;')
+
+
+def safe_print(msg, *args):
+    """Print safely to stdout (ASCII-only environments)."""
+    try:
+        text = msg.format(*args) if args else msg
+    except Exception:
+        try:
+            text = str(msg)
+        except Exception:
+            text = repr(msg)
+    # Remplacer les caracteres non-ASCII (Python 2 unicode ou Python 3 str avec accents)
+    try:
+        if text is None:
+            text = ""
+        elif text:
+            text = transliterate_to_ascii(text)
+    except Exception:
+        try:
+            t = text if text is not None else ""
+            b = t.encode('ascii', errors='replace')
+            text = b.decode('ascii') if sys.version_info[0] >= 3 else b
+        except Exception:
+            text = "(encoding error)"
+    try:
+        sys.stdout.write(text + "\n")
+        sys.stdout.flush()
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        try:
+            if hasattr(sys.stdout, "buffer"):
+                sys.stdout.buffer.write(text.encode("utf-8", errors="replace") + b"\n")
+                sys.stdout.buffer.flush()
+            else:
+                sys.stdout.write(text.encode("utf-8", errors="replace").decode("utf-8") + "\n")
+                sys.stdout.flush()
+        except Exception:
+            try:
+                safe_text = str(text).encode('ascii', errors='replace').decode('ascii')
+                sys.stdout.write(safe_text + "\n")
+                sys.stdout.flush()
+            except Exception:
+                pass
+
+
+def transliterate_to_ascii(text):
+    """Return ASCII-only approximation by removing diacritics."""
+    try:
+        if isinstance(text, bytes):
+            text = text.decode('utf-8', errors='ignore')
+        nkfd = unicodedata.normalize('NFKD', text)
+        return nkfd.encode('ascii', 'ignore').decode('ascii')
+    except Exception:
+        try:
+            return str(text)
+        except Exception:
+            return repr(text)
 
 
 def force_utf8(s):
-    """Force a value to a UTF-8-safe string for Python2/3 environments.
-
-    Returns a unicode `str` on Python 3 (decoded UTF-8) or a UTF-8 encoded
-    `str`/`bytes` on Python 2 as appropriate. If conversion fails, returns
-    an empty string.
-    """
+    """Force value to UTF-8-safe string (Python2/3)."""
     try:
         if s is None:
             return ""
-        # Detect Python2
         try:
             unicode  # type: ignore
             is_py2 = True
         except NameError:
             is_py2 = False
-
         if is_py2:
             try:
                 if isinstance(s, unicode):  # type: ignore
@@ -118,7 +111,6 @@ def force_utf8(s):
             except Exception:
                 return ""
         else:
-            # Python 3: ensure we return a str (unicode)
             if isinstance(s, bytes):
                 return s.decode('utf-8', 'ignore')
             elif isinstance(s, str):
@@ -130,44 +122,41 @@ def force_utf8(s):
 
 
 def get_local_ip_for_robot(robot_ip):
-    """
-    Obtient l'IP locale de la machine pour que le robot puisse y accéder
-    
-    Args:
-        robot_ip: IP du robot pour déterminer l'interface réseau à utiliser
-    
-    Returns:
-        str: IP locale de la machine
-    """
+    """Obtient l'IP locale pour que le robot puisse accéder à l'API."""
     try:
         import socket
-        # Se connecter au robot pour déterminer l'interface réseau locale
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect((robot_ip, 80))
         local_ip = s.getsockname()[0]
         s.close()
         return local_ip
-    except:
-        # Fallback: essayer de trouver l'IP locale
+    except Exception:
         try:
             import socket
             hostname = socket.gethostname()
             local_ip = socket.gethostbyname(hostname)
-            # Vérifier si c'est une IP valide (pas 127.0.0.1)
             if local_ip != "127.0.0.1":
                 return local_ip
-        except:
+        except Exception:
             pass
-        return "127.0.0.1"  # Dernier recours
+        return "127.0.0.1"
 
 
-# Check if OpenCV is available
-try:
-    import cv2
-    CV2_AVAILABLE = True
-except ImportError:
-    CV2_AVAILABLE = False
-    # safe_print is defined above, but we need to avoid circular import
-    print("OpenCV (cv2) non disponible. Le scan QR code utilisera le téléchargement direct depuis l'URL si disponible.")
-    print("Pour installer OpenCV: pip install opencv-python")
-
+def map_language_code_to_ald_label(code):
+    """Map ISO language code to ALTextToSpeech label."""
+    from config import ROBOT_CONFIG
+    try:
+        if not code:
+            return ROBOT_CONFIG.get("language", "French")
+        s = str(code).lower()
+        mapping = {
+            'fr': 'French', 'en': 'English', 'es': 'Spanish', 'de': 'German',
+            'it': 'Italian', 'pt': 'Portuguese', 'nl': 'Dutch', 'ru': 'Russian',
+            'ja': 'Japanese', 'ko': 'Korean', 'zh': 'Chinese',
+        }
+        for prefix, label in mapping.items():
+            if s.startswith(prefix):
+                return label
+        return ROBOT_CONFIG.get("language", "French")
+    except Exception:
+        return ROBOT_CONFIG.get("language", "French")
