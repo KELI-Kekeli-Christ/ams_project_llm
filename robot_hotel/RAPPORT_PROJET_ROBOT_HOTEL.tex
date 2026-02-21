@@ -1,0 +1,419 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage{geometry}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{titlesec}
+
+\geometry{margin=2.5cm}
+\hypersetup{colorlinks=true, linkcolor=blue, urlcolor=blue}
+
+\definecolor{codebg}{RGB}{245,245,245}
+\lstset{
+  basicstyle=\ttfamily\small,
+  backgroundcolor=\color{codebg},
+  frame=single,
+  breaklines=true,
+  numbers=left,
+  numberstyle=\tiny
+}
+
+\titleformat{\section}{\large\bfseries}{\thesection}{1em}{}
+\titleformat{\subsection}{\normalsize\bfseries}{\thesubsection}{1em}{}
+
+\title{\textbf{Rapport de projet} \\[0.5em] \large Système Robot Hôtel Pepper -- AMS}
+\author{Projet AMS -- Robot Hotel}
+\date{\today}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+%==============================================================================
+\section{Introduction}
+%==============================================================================
+
+Ce rapport décrit l'ensemble des fonctionnalités réalisées dans le projet \textbf{Robot Hotel}, incluant le serveur Flask (\texttt{robot\_hotel}), le client de conversation sur le robot Pepper (\texttt{pepper\_test}), les services métier, les interfaces web et vocales, ainsi que les options de déploiement.
+
+L'objectif global est de fournir un concierge virtuel (Pepper) capable de dialoguer avec les clients, de fournir des informations sur l'hôtel, de gérer des réservations, et d'offrir des interfaces multiples : tablette du robot, chat web, message vocal et appel vocal temps réel.
+
+%==============================================================================
+\section{Architecture globale}
+%==============================================================================
+
+Le projet est structuré en deux parties principales :
+
+\begin{itemize}[noitemsep]
+  \item \textbf{robot\_hotel} : application Flask (Python 3) exposant une API REST, des pages web (chat, tablette, validation), et des services (chat IA, transcription, réservation, RAG, reconnaissance faciale).
+  \item \textbf{pepper\_test} : client Python (compatible Python 2.7 pour Choregraphe/NAOqi) qui se connecte au robot Pepper, pilote la tablette et le TTS, enregistre l'audio (micro Pepper ou PC), et communique avec l'API Flask pour transcription, chat et réservation.
+\end{itemize}
+
+La communication se fait ainsi : le robot Pepper exécute \texttt{pepper\_test/main.py}, qui appelle l'API hébergée par \texttt{robot\_hotel/main.py} (même machine ou réseau local). Les utilisateurs peuvent aussi accéder au chat via le web (QR code affiché sur la tablette).
+
+%==============================================================================
+\section{Partie robot\_hotel (serveur Flask)}
+%==============================================================================
+
+\subsection{Point d'entrée et configuration}
+
+\begin{itemize}[noitemsep]
+  \item \textbf{main.py} : lance l'application Flask sur \texttt{0.0.0.0:5000} (debug configurable via \texttt{FLASK\_DEBUG}).
+  \item \textbf{app.py} : factory Flask (\texttt{create\_app()}), chargement des variables d'environnement via \texttt{dotenv}, initialisation des services (RAG, Whisper, détection faciale), enregistrement des blueprints et options suivantes :
+  \begin{itemize}[noitemsep]
+    \item \texttt{ENABLE\_VOICE\_CALL} : active le bouton micro (message vocal) sur la page chat.
+    \item \texttt{ENABLE\_REALTIME\_VOICE\_CALL} : active l'icône téléphone et le WebSocket d'appel vocal.
+    \item \texttt{REALTIME\_CALL\_VOICE\_MODE} : mode « vrai appel » (un appui, 3 s de silence = envoi, interruption de Pepper en parlant).
+  \end{itemize}
+\end{itemize}
+
+\subsection{Structure des dossiers}
+
+\begin{lstlisting}[language=bash]
+robot_hotel/
+  app.py, main.py
+  config/          # Swagger, OpenAPI
+  routes/          # chat, audio, reservation, face, qr_scan, email, pages, tablet, realtime_voice_ws
+  services/        # chat, whisper, record, rag, make_reservation, email, face_detection, location
+  utils/           # qr_code
+  ui/              # tablet_html (HTML tablette)
+  templates/       # chat.html, validation.html, robot_test.html, ...
+  docs/            # hotel.json (infos hotel)
+\end{lstlisting}
+
+\subsection{Routes et API}
+
+\subsubsection{Chat (\texttt{routes/chat.py})}
+
+\begin{itemize}[noitemsep]
+  \item \texttt{POST /chat} : envoi d'un message texte, retourne la réponse du modèle (Llama 3.1 via HuggingFace) avec \texttt{session\_id} pour la mémoire et la réservation.
+  \item \texttt{GET /chat} : affiche l'interface web de chat (\texttt{chat.html}) avec options \texttt{enable\_voice\_call} et \texttt{enable\_realtime\_voice\_call}.
+  \item \texttt{POST /chat/voice} : reçoit un fichier audio (multipart), le transcrit (Whisper), envoie le texte au chat, retourne \texttt{response}, \texttt{transcript}, \texttt{session\_id}. Réservé si \texttt{ENABLE\_VOICE\_CALL=true}.
+  \item \texttt{GET /chat/qrcode} : retourne l'image PNG du QR code pointant vers l'URL du chat.
+  \item \texttt{GET /chat/qrcode/html} : page HTML avec le QR code et lien vers le chat.
+\end{itemize}
+
+\subsubsection{Appel vocal temps réel (\texttt{routes/realtime\_voice\_ws.py})}
+
+Activé uniquement si \texttt{ENABLE\_REALTIME\_VOICE\_CALL=true}.
+
+\begin{itemize}[noitemsep]
+  \item \texttt{WebSocket /ws/realtime-voice} : protocole JSON.
+  \begin{itemize}[noitemsep]
+    \item Client envoie : \texttt{init} (session\_id), \texttt{audio} (base64, optionnel mime), \texttt{end\_turn}.
+    \item Serveur renvoie : \texttt{ready}, \texttt{response\_chunk} (streaming texte), \texttt{response\_done} (full\_text, session\_id), \texttt{response} (fallback), \texttt{error}.
+  \end{itemize}
+  \item Transcription Whisper (fichier temporaire .webm ou .mp4), puis \texttt{chat\_stream()} pour réponse en streaming ; en cas d'erreur, fallback sur \texttt{chat()} non streamé.
+\end{itemize}
+
+\subsubsection{Audio et enregistrement (\texttt{routes/audio.py})}
+
+\begin{itemize}[noitemsep]
+  \item \texttt{POST /transcribe} : transcription d'un fichier audio (Whisper).
+  \item \texttt{GET /record}, \texttt{POST /record/start}, \texttt{POST /record/stop}, \texttt{GET /record/status} : enregistrement manuel (PC ou flux).
+  \item \texttt{POST /record/pepper\_mode}, \texttt{GET /record/pepper\_mode} : activation du mode micro Pepper (enregistrement côté robot).
+  \item \texttt{POST /record/wake\_word/start}, \texttt{GET /record/wake\_word/status}, \texttt{POST /record/wake\_word/reset} : détection de wake word (déclenchement à la voix).
+\end{itemize}
+
+\subsubsection{Réservations (\texttt{routes/reservation.py})}
+
+\begin{itemize}[noitemsep]
+  \item \texttt{POST /make\_reservation} : création de réservation à partir d'un transcript ou de données structurées.
+  \item \texttt{POST /make\_reservation\_from\_last} : réservation à partir du dernier enregistrement.
+  \item \texttt{POST /validate\_reservation\_form} : validation des champs (dates, type de chambre, etc.).
+  \item \texttt{GET /validate} : page de validation de réservation (lien envoyé par email).
+  \item \texttt{GET /get\_reservation\_session}, \texttt{POST /update\_reservation\_session} : gestion de session de réservation.
+  \item \texttt{POST /confirm\_reservation} : confirmation côté backend.
+  \item \texttt{GET /reservation\_success} : page de succès après réservation.
+\end{itemize}
+
+\subsubsection{Visage (\texttt{routes/face.py})}
+
+\begin{itemize}[noitemsep]
+  \item \texttt{POST /face/detect} : détection de visages dans une image.
+  \item \texttt{POST /face/register} : enregistrement d'une personne (nom + image).
+  \item \texttt{GET /face/persons} : liste des personnes enregistrées.
+  \item \texttt{DELETE /face/persons/<name>} : suppression d'une personne.
+  \item \texttt{POST /face/stream/start}, \texttt{POST /face/stream/stop}, \texttt{GET /face/stream/detections} : flux vidéo et détections en temps réel.
+\end{itemize}
+
+\subsubsection{Scan QR (\texttt{routes/qr\_scan.py})}
+
+\begin{itemize}[noitemsep]
+  \item \texttt{POST /scan\_qr} : envoi d'une image, retourne le contenu du QR code (et validation réservation si applicable).
+  \item \texttt{POST /scan\_qr/stream/start}, \texttt{POST /scan\_qr/stream/stop}, \texttt{GET /scan\_qr/stream/status}, \texttt{POST /scan\_qr/stream} : flux vidéo pour scan QR continu.
+\end{itemize}
+
+\subsubsection{Email (\texttt{routes/email\_routes.py})}
+
+\begin{itemize}[noitemsep]
+  \item \texttt{GET /email/config} : récupération de la configuration email.
+  \item \texttt{PUT /email/config}, \texttt{POST /email/config} : mise à jour de la configuration email (SMTP, etc.).
+\end{itemize}
+
+\subsubsection{Pages (\texttt{routes/pages.py})}
+
+\begin{itemize}[noitemsep]
+  \item \texttt{GET /} : page d'accueil.
+  \item \texttt{GET /location} : retourne heure et date (service local).
+  \item \texttt{GET /test} : page de test.
+\end{itemize}
+
+\subsubsection{Tablette (\texttt{routes/tablet.py})}
+
+\begin{itemize}[noitemsep]
+  \item \texttt{GET /tablet}, \texttt{GET /tablet/} : interface HTML pour la tablette Pepper (bouton micro, bouton « Appel », QR code chat).
+  \item \texttt{GET /tablet/recording} : page ou état lié à l'enregistrement sur la tablette.
+  \item \textbf{Appel vocal temps réel depuis la tablette du robot} :
+  \begin{itemize}[noitemsep]
+    \item \texttt{GET /tablet/call/status} : retourne \texttt{call\_requested} et \texttt{call\_stop} (poll par \texttt{pepper\_test}).
+    \item \texttt{GET/POST /tablet/call/start} : déclenche une demande d'appel (bouton « Appel » sur la tablette).
+    \item \texttt{POST /tablet/call/cleared} : le script a pris en charge l'appel.
+    \item \texttt{GET/POST /tablet/call/stop} : raccrocher (bouton « Raccrocher » sur la tablette pendant l'appel).
+    \item \texttt{POST /tablet/call/reset} : réinitialisation de l'état après fin d'appel.
+    \item \texttt{GET /tablet/call} : page affichée sur la tablette pendant l'appel (« Appel en cours », bouton « Raccrocher »).
+  \end{itemize}
+  \item Même logique que l'appel web en mode continu : un appui sur « Appel » ouvre le flux ; 3 secondes de silence déclenchent l'envoi automatique ; le robot utilise son micro et son TTS, et appelle \texttt{POST /chat/voice} pour transcription et réponse.
+\end{itemize}
+
+%----------------------------------------------------------------------------
+\subsection{Services métier}
+%----------------------------------------------------------------------------
+
+\subsubsection{Chat et réservation (\texttt{services/chat.py})}
+
+\begin{itemize}[noitemsep]
+  \item Connexion au modèle Llama 3.1 (HuggingFace) pour les réponses.
+  \item Mémoire conversationnelle : Redis (ou fallback in-memory), clé \texttt{chat:session\_id}, historique limité (10 derniers messages, 8 envoyés au LLM).
+  \item RAG : contexte extrait de la base documentaire (voir \texttt{services/rag.py}) et infos hôtel (\texttt{docs/hotel.json}) injectés dans le prompt système.
+  \item Détection d'intention réservation : mots-clés « réserver », « réservation », « chambre », « booking » pour lancer le flux structuré.
+  \item \texttt{run\_reservation\_flow} : étapes (dates, type de chambre, nom, prénom, email, confirmation), extraction de dates relatives (LLM), validation type de chambre (LLM), sauvegarde en base SQLite et session Redis.
+  \item \texttt{chat()} : réponse complète (JSON avec \texttt{response}, \texttt{session\_id}, \texttt{reservation\_step}).
+  \item \texttt{chat\_stream()} : générateur pour réponse en streaming (tokens) pour l'appel vocal ; en cas d'erreur API, fallback sur réponse complète.
+  \item Envoi d'email de confirmation avec lien de validation (\texttt{generate\_link}, \texttt{send\_email}).
+\end{itemize}
+
+\subsubsection{Transcription (\texttt{services/whisper.py})}
+
+\begin{itemize}[noitemsep]
+  \item Modèle Faster-Whisper (taille configurable, ex. \texttt{medium}), chargement au démarrage de l'app.
+  \item \texttt{transcribe\_audio(model, file)} : \texttt{file} peut être un chemin (str) ou un objet type FileStorage ; extension conservée (.webm, .mp4, .wav) pour compatibilité.
+  \item Retour : dictionnaire avec \texttt{text} (et éventuellement segments).
+\end{itemize}
+
+\subsubsection{Enregistrement (\texttt{services/record.py})}
+
+\begin{itemize}[noitemsep]
+  \item Mode micro Pepper : \texttt{set\_pepper\_mic\_mode(enabled)} pour basculer l'enregistrement côté robot (FTP/SSH pour récupérer le fichier si nécessaire).
+  \item \texttt{record\_until\_silence()} : enregistrement jusqu'à détection de silence (seuil configurable).
+  \item \texttt{start\_manual\_recording()}, \texttt{stop\_manual\_recording()}, \texttt{get\_recording\_status()}, \texttt{get\_last\_recorded\_file\_path()}.
+  \item Wake word : \texttt{check\_wake\_word(text)}, \texttt{start\_wake\_word\_listening()}, \texttt{start\_wake\_word\_detection()}, \texttt{get\_wake\_word\_status()}, \texttt{reset\_wake\_word\_status()}.
+\end{itemize}
+
+\subsubsection{RAG (\texttt{services/rag.py})}
+
+\begin{itemize}[noitemsep]
+  \item \texttt{init\_rag()} : chargement de l'index (embedding + base documentaire) au démarrage.
+  \item \texttt{get\_rag\_context(user\_msg, top\_k=3)} : retourne un contexte pertinent pour le prompt du chat (réponses sur horaires, piscine, services, etc.).
+\end{itemize}
+
+\subsubsection{Réservation (données) (\texttt{services/make\_reservation.py})}
+
+\begin{itemize}[noitemsep]
+  \item Base temporaire (SQLite ou équivalent) pour stocker les réservations extraites et validées.
+  \item \texttt{extract\_reservation\_info(transcript)}, \texttt{make\_reservation(transcript, session\_id)}, \texttt{make\_reservation\_from\_data(user\_data)}.
+  \item Appels à une API métier (création client, création réservation) si configurée.
+\end{itemize}
+
+\subsubsection{Email (\texttt{services/email.py})}
+
+\begin{itemize}[noitemsep]
+  \item Configuration SMTP (chargement/sauvegarde), envoi d'emails de confirmation de réservation et de validation (lien de validation).
+  \item \texttt{send\_reservation\_confirmation}, \texttt{send\_validation\_email}, etc.
+\end{itemize}
+
+\subsubsection{Détection faciale (\texttt{services/face\_detection.py})}
+
+\begin{itemize}[noitemsep]
+  \item Initialisation au démarrage (\texttt{init\_face\_detection()}), base de visages enregistrés.
+  \item \texttt{detect\_faces\_in\_image(file)}, \texttt{register\_person\_from\_image(file, name)}, \texttt{get\_registered\_persons()}, \texttt{delete\_person(name)}.
+  \item \texttt{process\_frame\_for\_detection(frame)}, \texttt{start\_video\_stream()}, \texttt{stop\_video\_stream()}, \texttt{get\_latest\_detections()} pour le flux vidéo temps réel.
+\end{itemize}
+
+\subsubsection{Localisation (\texttt{services/location.py})}
+
+\begin{itemize}[noitemsep]
+  \item \texttt{get\_heure\_date()} : retourne heure et date pour le serveur (affichage ou logique métier).
+\end{itemize}
+
+%----------------------------------------------------------------------------
+\subsection{Interface web chat (\texttt{templates/chat.html})}
+%----------------------------------------------------------------------------
+
+\begin{itemize}[noitemsep]
+  \item En-tête : avatar, nom « Pepper », statut en ligne, bouton QR Code, optionnellement icône \textbf{téléphone} (si \texttt{enable\_realtime\_voice\_call}).
+  \item Zone de messages : bulles utilisateur / bot, indicateur « en train d'écrire », timestamps.
+  \item Zone de saisie : \textbf{Micro} (si \texttt{enable\_voice\_call}) : un appui ouvre l'overlay « Appel vocal » avec étape « Autoriser le micro » (HTTPS ou localhost requis), puis bouton maintenir pour parler ; envoi en \texttt{POST /chat/voice}, réponse affichée en texte (sans TTS).
+  \item \textbf{Appel (téléphone)} : si \texttt{enable\_realtime\_voice\_call}, clic sur l'icône ouvre un modal « Appel avec Pepper ». Après « Autoriser le micro », connexion WebSocket \texttt{/ws/realtime-voice}. Deux modes :
+  \begin{itemize}[noitemsep]
+    \item \textbf{Mode classique} : maintenir le bouton pour enregistrer, relâcher pour envoyer.
+    \item \textbf{Mode vrai appel} (\texttt{realtime\_call\_voice\_mode}) : un appui ouvre le micro en continu ; 3 secondes de silence déclenchent l'envoi automatique puis reprise de l'enregistrement ; réappuyer ferme le micro. Pendant que Pepper parle (TTS), l'audio utilisateur n'est pas envoyé (pas d'envoi sur 3 s de silence) ; si l'utilisateur parle « fort » (niveau au-dessus d'un seuil), la TTS est interrompue (comportement type appel).
+  \end{itemize}
+  \item Réponses du bot en appel : streaming de texte (\texttt{response\_chunk}) + synthèse vocale côté navigateur (TTS système, \texttt{window.speechSynthesis}), avec déblocage sur geste utilisateur (prime TTS). \texttt{response\_done} pour message complet et mise à jour de la session.
+  \item Même \texttt{session\_id} (localStorage) pour chat texte, message vocal et appel : mémoire et réservation partagées.
+\end{itemize}
+
+%----------------------------------------------------------------------------
+\subsection{Mémoire conversationnelle (Redis)}
+%----------------------------------------------------------------------------
+
+\begin{itemize}[noitemsep]
+  \item Stockage : Redis (ou dictionnaire en mémoire si Redis indisponible), clé \texttt{chat:session\_id}, valeur JSON (liste de messages \texttt{role/content}).
+  \item Limite : 10 derniers messages par session, 8 envoyés au LLM ; TTL 3600 s.
+  \item Utilisation : historique injecté dans le prompt pour le modèle (continuité, réservation multi-tours).
+\end{itemize}
+
+%----------------------------------------------------------------------------
+\subsection{Configuration et déploiement}
+%----------------------------------------------------------------------------
+
+\begin{itemize}[noitemsep]
+  \item Variables d'environnement : \texttt{.env} (chargé par \texttt{dotenv}) : \texttt{PEPPER\_IP}, \texttt{FLASK\_API\_URL}, \texttt{REDIS\_HOST}, \texttt{REDIS\_PORT}, \texttt{ENABLE\_VOICE\_CALL}, \texttt{ENABLE\_REALTIME\_VOICE\_CALL}, \texttt{REALTIME\_CALL\_VOICE\_MODE}.
+  \item Docker : \texttt{docker-compose} avec services \texttt{flask}, \texttt{redis}, optionnel \texttt{pepper} ; voir \texttt{DOCKER.md}.
+  \item Swagger : documentation API via Flasgger (\texttt{config/swagger.py}).
+\end{itemize}
+
+%==============================================================================
+\section{Partie pepper\_test (client robot Pepper)}
+%==============================================================================
+
+\subsection{Vue d'ensemble}
+
+Le module \texttt{pepper\_test} s'exécute sur une machine ayant accès au robot (réseau local). Il utilise le SDK NAOqi (Choregraphe) pour contrôler le robot et appelle l'API Flask pour transcription, chat et réservation.
+
+\subsection{Point d'entrée et configuration}
+
+\begin{itemize}[noitemsep]
+  \item \textbf{main.py} : import de \texttt{choreographe} (configuration de l'environnement Python/Choregraphe), puis appel à \texttt{run\_conversation()} depuis \texttt{conversation.py}.
+  \item \textbf{config.py} : \texttt{ROBOT\_CONFIG} (IP, port, langue), \texttt{API\_CONFIG} (base\_url Flask, timeouts), \texttt{USE\_PEPPER\_MIC} (True pour enregistrement via micro Pepper), \texttt{CHOREGRAPHE\_PATH}.
+\end{itemize}
+
+\subsection{Modules principaux}
+
+\subsubsection{choreographe.py}
+
+\begin{itemize}[noitemsep]
+  \item Configuration du \texttt{sys.path} et de \texttt{LD\_LIBRARY\_PATH} pour charger les bibliothèques NAOqi (Choregraphe). Doit être importé avant \texttt{qi}.
+\end{itemize}
+
+\subsubsection{robot\_manager.py}
+
+\begin{itemize}[noitemsep]
+  \item \textbf{RobotManager} : connexion au robot via \texttt{qi.Session} (\texttt{tcp://IP:port}).
+  \item Services NAOqi initialisés : \texttt{ALTextToSpeech} (TTS), \texttt{ALTabletService} (tablette), \texttt{ALAudioRecorder} (enregistrement micro Pepper), \texttt{ALVideoDevice} (caméra).
+  \item Méthodes : \texttt{connect()}, \texttt{initialize\_services()}, \texttt{say(text, language)} pour la synthèse vocale, affichage de pages web sur la tablette, capture d'image depuis la caméra, enregistrement audio depuis le micro du robot (avec callback d'arrêt si besoin).
+  \item Gestion des URLs caméra et du flux vidéo pour le scan QR ou la reconnaissance.
+\end{itemize}
+
+\subsubsection{api\_client.py}
+
+\begin{itemize}[noitemsep]
+  \item \texttt{record\_audio\_manual()} : enregistrement côté PC (ou déclenchement d'un enregistrement).
+  \item \texttt{transcribe\_audio()} : envoi du fichier audio à \texttt{POST /transcribe}.
+  \item \texttt{chat\_with\_api()} : envoi du message à \texttt{POST /chat}.
+  \item \texttt{make\_reservation\_with\_api()} : appel à l'API de réservation.
+  \item \texttt{is\_reservation\_request()}, \texttt{is\_qr\_scan\_request()} : détection d'intention pour orienter le flux.
+  \item \texttt{scan\_qr\_code\_with\_api()} : envoi d'image ou URL caméra à \texttt{POST /scan\_qr}.
+\end{itemize}
+
+\subsubsection{conversation.py}
+
+\begin{itemize}[noitemsep]
+  \item \textbf{run\_conversation()} : boucle principale.
+  \item Vérification du serveur Flask (\texttt{check\_flask\_server}), démarrage en arrière-plan si possible (\texttt{start\_flask\_server\_background}).
+  \item Connexion au robot (\texttt{RobotManager}), initialisation des services, configuration du mode micro (Pepper ou PC) via \texttt{POST /record/pepper\_mode}.
+  \item Affichage sur la tablette : bouton micro, bouton « Appel », QR code, pages générées par \texttt{ui/tablet\_html.py}.
+  \item \textbf{Appel vocal temps réel (bouton Appel sur la tablette)} : au début de chaque tour, le script interroge \texttt{GET /tablet/call/status}. Si \texttt{call\_requested} est vrai, il exécute \texttt{run\_robot\_call\_flow()} : chargement de la page \texttt{/tablet/call} sur la tablette (« Appel en cours », « Raccrocher »), puis boucle enregistrement (3 s de silence ou micro Pepper avec callback) $\rightarrow$ \texttt{POST /chat/voice} $\rightarrow$ réponse TTS sur le robot ; sortie lorsque l'utilisateur clique sur « Raccrocher » (\texttt{call\_stop}). Même API (\texttt{/chat/voice}) et même session que le chat web.
+  \item Enregistrement : \texttt{\_record\_audio(robot)} utilise le micro Pepper (ALAudioRecorder + récupération du fichier) ou \texttt{record\_audio\_manual()} sur le PC.
+  \item Transcription puis envoi au chat ; gestion du flux réservation (dates, type de chambre, nom, prénom, email, confirmation) avec réponses TTS sur le robot.
+  \item Scan QR : \texttt{\_scan\_qr\_from\_robot\_camera(robot)} capture une image depuis la caméra du robot et l'envoie à \texttt{POST /scan\_qr}, ou utilisation d'une URL caméra.
+  \item Messages de bienvenue, d'erreur et de confirmation en TTS (safe\_say avec langue mappée via \texttt{map\_language\_code\_to\_ald\_label}).
+\end{itemize}
+
+\subsubsection{flask\_utils.py}
+
+\begin{itemize}[noitemsep]
+  \item \texttt{check\_flask\_server()} : vérification que l'API Flask est accessible.
+  \item \texttt{start\_flask\_server\_background()} : démarrage du serveur Flask en sous-processus si nécessaire.
+  \item \texttt{post\_file\_with\_retries()} : envoi de fichier avec retentatives.
+\end{itemize}
+
+\subsubsection{utils (helpers, tts)}
+
+\begin{itemize}[noitemsep]
+  \item \textbf{helpers.py} : \texttt{safe\_print}, \texttt{transliterate\_to\_ascii}, \texttt{escape\_html}, \texttt{force\_utf8}, \texttt{get\_local\_ip\_for\_robot}, \texttt{map\_language\_code\_to\_ald\_label} (pour ALTextToSpeech).
+  \item \textbf{tts.py} : \texttt{safe\_say(robot, text, language)} : appel sécurisé au TTS du robot (gestion encodage, erreurs).
+\end{itemize}
+
+\subsubsection{ui/tablet\_html.py}
+
+\begin{itemize}[noitemsep]
+  \item Génération du HTML affiché sur la tablette Pepper : bouton micro (démarrage/arrêt enregistrement via l'API), bouton « Appel » (déclenche \texttt{POST /tablet/call/start} pour lancer l'appel vocal temps réel continu), affichage du QR code (URL vers \texttt{/chat}), liens utiles.
+\end{itemize}
+
+%==============================================================================
+\section{Administration (admin)}
+%==============================================================================
+
+\begin{itemize}[noitemsep]
+  \item Application Streamlit (\texttt{admin/app.py}) : tableau de bord d'administration pour le système Robot Hotel.
+  \item Vérification de la connexion à l'API Flask, affichage de l'état (opérationnel / non connecté).
+  \item Pages (ex. dans \texttt{admin/pages/}) : gestion des visages, streaming vidéo, chat et audio, réservations, configuration email. Permet de tester et piloter les fonctionnalités sans passer par le robot.
+\end{itemize}
+
+%==============================================================================
+\section{Déploiement Docker}
+%==============================================================================
+
+\begin{itemize}[noitemsep]
+  \item \texttt{docker-compose} : services \texttt{redis}, \texttt{flask} ; profil optionnel \texttt{pepper} pour le client Pepper (network\_mode: host pour accès au robot sur le LAN).
+  \item Variables d'environnement : \texttt{PEPPER\_IP}, \texttt{PEPPER\_PORT}, \texttt{FLASK\_API\_URL}, \texttt{REDIS\_HOST}, \texttt{REDIS\_PORT}. Voir \texttt{DOCKER.md} et \texttt{.env.example}.
+\end{itemize}
+
+%==============================================================================
+\section{Synthèse des fonctionnalités}
+%==============================================================================
+
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Composant} & \textbf{Fonctionnalités} \\
+\midrule
+Chat web & Messages texte, mémoire (Redis), même session pour réservation \\
+Message vocal (micro) & Enregistrement (WebM/MP4), transcription Whisper, réponse texte, pas de TTS \\
+Appel vocal (téléphone) & WebSocket, streaming réponse, TTS navigateur, mode « vrai appel » optionnel \\
+Réservation & Flux guidé (dates, chambre, nom, email), validation par lien, email, SQLite \\
+RAG & Contexte documentaire + infos hôtel pour réponses précises \\
+Visage & Détection, enregistrement, suppression, flux vidéo \\
+QR & Scan image, flux stream, validation réservation \\
+Tablette Pepper & HTML avec bouton micro, bouton « Appel » (appel vocal continu), QR code \\
+Pepper (pepper\_test) & TTS, micro Pepper ou PC, conversation, réservation, scan QR, appel continu (bouton Appel) \\
+\bottomrule
+\end{tabular}
+\caption{Récapitulatif des fonctionnalités du projet.}
+\end{table}
+
+%==============================================================================
+\section{Conclusion}
+%==============================================================================
+
+Le projet Robot Hotel couvre un système complet : serveur Flask (API, chat, vocal, réservation, RAG, visage, QR, email), client Pepper (conversation, TTS, micro, tablette, scan QR, appel vocal continu via bouton « Appel » sur la tablette), et interfaces web (chat avec micro et appel temps réel, options configurables). La mémoire conversationnelle et la session partagée entre chat, message vocal et appel permettent une expérience cohérente et la réalisation de réservations sur tous les canaux. Le rapport détaille l’architecture, les routes, les services et les comportements des deux parties du projet (\texttt{robot\_hotel} et \texttt{pepper\_test}) pour faciliter la maintenance et les évolutions futures.
+
+\end{document}

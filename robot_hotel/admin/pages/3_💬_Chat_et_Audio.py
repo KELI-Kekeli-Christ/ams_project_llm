@@ -9,6 +9,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import (
     chat_api,
+    chat_voice,
     transcribe_audio,
     record_audio,
     get_location,
@@ -18,7 +19,7 @@ from utils import (
 
 st.set_page_config(page_title="Chat et Audio", page_icon="💬", layout="wide")
 
-st.title("💬 Test du Chat et Transcription Audio")
+st.title("💬 Chat, Vocal et Audio")
 
 # Vérifier la connexion API
 if not test_api_connection():
@@ -26,8 +27,14 @@ if not test_api_connection():
     st.info(f"💡 URL testée: {API_BASE_URL}/")
     st.stop()
 
-# Tabs pour organiser les fonctionnalités
-tab1, tab2, tab3, tab4 = st.tabs(["🤖 Chat", "🎤 Transcription Audio", "🔴 Enregistrement", "📍 Heure/Lieu"])
+# Tabs : Chat, Transcription, Appel vocal, Enregistrement, Heure/Lieu
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "🤖 Chat",
+    "🎤 Transcription Audio",
+    "☎️ Appel vocal",
+    "🔴 Enregistrement",
+    "📍 Heure/Lieu"
+])
 
 # Tab 1: Chat
 with tab1:
@@ -93,8 +100,8 @@ with tab2:
     
     uploaded_audio = st.file_uploader(
         "Choisir un fichier audio",
-        type=['mp3', 'wav', 'ogg', 'm4a', 'flac'],
-        help="Le fichier sera transcrit en texte avec détection automatique de la langue"
+        type=['mp3', 'wav', 'ogg', 'm4a', 'flac', 'webm', 'mp4'],
+        help="WAV, WebM (navigateur), MP4, etc. Transcrit avec détection automatique de la langue."
     )
     
     if uploaded_audio is not None:
@@ -153,17 +160,84 @@ with tab2:
                 with st.expander("🔍 Détails de l'erreur"):
                     st.code(traceback.format_exc())
 
-# Tab 3: Enregistrement
+# Tab 3: Appel vocal (comme le chat web : envoi vocal → transcription + réponse du bot)
 with tab3:
+    st.header("☎️ Appel vocal")
+    
+    st.info("💡 Envoyez un message vocal : il est transcrit puis envoyé au chatbot. Même API que l’interface web (/chat/voice). **2 secondes de silence** = fin d’enregistrement sur le micro. Sur le chat web : *parler fort = interrompre Pepper*.")
+    
+    if "voice_session_id" not in st.session_state:
+        st.session_state.voice_session_id = None
+    if "voice_history" not in st.session_state:
+        st.session_state.voice_history = []
+    
+    for msg in st.session_state.voice_history:
+        with st.chat_message(msg["role"]):
+            st.write(msg["content"])
+    
+    col_up, col_rec = st.columns(2)
+    with col_up:
+        voice_file = st.file_uploader(
+            "Ou déposer un fichier vocal (WAV, WebM, MP4…)",
+            type=["wav", "webm", "mp4", "ogg", "m4a", "mp3"],
+            key="voice_upload",
+            help="Même formats que le micro du navigateur."
+        )
+    with col_rec:
+        st.caption("Enregistrement (micro du serveur)")
+        do_record = st.button("🎙️ Enregistrer puis envoyer (2 s silence = stop)", key="voice_record_btn")
+    
+    send_audio = None
+    if voice_file is not None:
+        send_audio = voice_file
+    if do_record:
+        with st.spinner("🎤 Enregistrement… Parlez, 2 s de silence = arrêt."):
+            rec_result = record_audio()
+        if rec_result and "error" not in rec_result and rec_result.get("file"):
+            import io
+            script_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+            full_path = os.path.join(script_dir, rec_result["file"])
+            if os.path.exists(full_path):
+                with open(full_path, "rb") as f:
+                    send_audio = io.BytesIO(f.read())
+                    send_audio.name = os.path.basename(full_path)
+    
+    if send_audio is not None:
+        send_audio.seek(0)
+        with st.spinner("⏳ Transcription et réponse du bot…"):
+            out = chat_voice(send_audio, session_id=st.session_state.voice_session_id)
+        if out.get("error"):
+            st.error(f"❌ {out['error']}")
+        else:
+            if out.get("session_id"):
+                st.session_state.voice_session_id = out["session_id"]
+            transcript = (out.get("transcript") or "").strip()
+            response = (out.get("response") or "").strip()
+            if transcript:
+                st.session_state.voice_history.append({"role": "user", "content": f"🎤 {transcript}"})
+            if response:
+                st.session_state.voice_history.append({"role": "assistant", "content": response})
+            if transcript or response:
+                st.rerun()
+            elif not transcript:
+                st.warning("Aucune parole détectée. Parlez plus fort ou plus près du micro.")
+    
+    if st.button("🗑️ Effacer l’historique vocal", key="clear_voice_hist"):
+        st.session_state.voice_history = []
+        st.session_state.voice_session_id = None
+        st.rerun()
+
+# Tab 4: Enregistrement
+with tab4:
     st.header("🔴 Enregistrement Audio")
     
-    st.warning("⚠️ **Note:** Cette fonctionnalité nécessite un microphone connecté et des permissions appropriées.")
+    st.warning("⚠️ **Note:** Cette fonctionnalité nécessite un microphone connecté (serveur) et des permissions appropriées.")
     
-    st.info("💡 Cliquez sur le bouton pour démarrer l'enregistrement. L'enregistrement s'arrêtera automatiquement après **3 secondes de silence**.")
-    st.warning("⚠️ **Astuce:** L'enregistrement est maintenant configuré pour permettre des pauses naturelles lors de la parole. Il s'arrêtera seulement après 3 secondes de silence complet.")
+    st.info("💡 Cliquez pour démarrer l’enregistrement. L’arrêt est automatique après **2 secondes de silence**.")
+    st.caption("Permet des pauses naturelles ; arrêt seulement après 2 secondes de silence complet.")
     
-    if st.button("🎙️ Démarrer l'Enregistrement", type="primary", use_container_width=True):
-        with st.spinner("🎤 Enregistrement en cours... Parlez maintenant. Vous pouvez faire des pauses naturelles. L'enregistrement s'arrêtera après 3 secondes de silence complet."):
+    if st.button("🎙️ Démarrer l'Enregistrement", type="primary", use_container_width=True, key="rec_btn"):
+        with st.spinner("🎤 Enregistrement… Parlez. Arrêt après 2 secondes de silence."):
             result = record_audio()
         
         if result and "error" in result:
@@ -176,11 +250,9 @@ with tab3:
             
             if file_path:
                 st.info(f"📁 Fichier sauvegardé: `{file_path}`")
-                st.success("🎉 Enregistrement terminé avec succès!")
+                st.success("🎉 Enregistrement terminé.")
                 
-                # Option pour transcrire directement
                 if st.button("📝 Transcrire cet enregistrement", key="transcribe_recorded"):
-                    # Essayer de lire et transcrire le fichier
                     try:
                         import io
                         script_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -190,30 +262,27 @@ with tab3:
                             with open(full_path, 'rb') as f:
                                 audio_file = io.BytesIO(f.read())
                                 audio_file.name = os.path.basename(full_path)
-                                
                                 with st.spinner("⏳ Transcription en cours..."):
                                     transcribe_result = transcribe_audio(audio_file)
-                                
                                 if transcribe_result and "error" not in transcribe_result:
                                     text = transcribe_result.get('text', '')
                                     if text:
                                         st.success("✅ Transcription réussie!")
-                                        st.text_area("Texte transcrit:", value=text, height=200)
+                                        st.text_area("Texte transcrit:", value=text, height=200, key="rec_transcript")
                                     else:
                                         st.warning("⚠️ Aucun texte n'a été transcrit.")
                                 else:
-                                    error_msg = transcribe_result.get('error', 'Erreur inconnue') if transcribe_result else 'Aucune réponse'
-                                    st.error(f"❌ Erreur lors de la transcription: {error_msg}")
+                                    err = transcribe_result.get('error', 'Erreur') if transcribe_result else 'Aucune réponse'
+                                    st.error(f"❌ {err}")
                         else:
                             st.error(f"❌ Fichier non trouvé: {full_path}")
                     except Exception as e:
                         st.error(f"❌ Erreur: {str(e)}")
-                        st.info("ℹ️ Utilisez l'onglet 'Transcription Audio' pour télécharger et transcrire ce fichier.")
             else:
-                st.warning("⚠️ Aucun fichier retourné par l'enregistrement.")
+                st.warning("⚠️ Aucun fichier retourné.")
 
-# Tab 4: Heure et Lieu
-with tab4:
+# Tab 5: Heure et Lieu
+with tab5:
     st.header("📍 Heure et Date Actuelles")
     
     st.info("💡 Récupère l'heure et la date actuelles du système.")

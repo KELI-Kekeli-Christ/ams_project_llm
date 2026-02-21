@@ -2,6 +2,7 @@
 
 ###############################################################################
 # Script unique pour lancer tous les services Robot Hotel
+# - Redis (port 6379) - memoire conversationnelle du chatbot
 # - Flask API (port 5000)
 # - FastAPI avec Uvicorn (port 8000, optionnel)
 # - Streamlit Admin (port 8501)
@@ -22,6 +23,7 @@ LOG_DIR="$SCRIPT_DIR/logs"
 PID_FILE="$LOG_DIR/services.pid"
 
 # Ports
+REDIS_PORT=6379
 FLASK_PORT=5000
 FASTAPI_PORT=8000
 STREAMLIT_PORT=8501
@@ -53,7 +55,7 @@ stop_services() {
         rm -f "$PID_FILE"
     fi
     
-    for port in $FLASK_PORT $FASTAPI_PORT $STREAMLIT_PORT; do
+    for port in $REDIS_PORT $FLASK_PORT $FASTAPI_PORT $STREAMLIT_PORT; do
         if check_port $port; then
             lsof -ti:$port | xargs kill -9 2>/dev/null
         fi
@@ -99,6 +101,31 @@ check_ports() {
             break
         fi
     done
+}
+
+# Démarrer Redis
+start_redis() {
+    if check_port $REDIS_PORT; then
+        print_success "Redis déjà en cours (port $REDIS_PORT)"
+        return 0
+    fi
+    
+    if ! command -v redis-server >/dev/null 2>&1; then
+        print_warning "redis-server non trouvé. Installez avec: sudo apt install redis-server"
+        print_warning "Le chatbot utilisera la mémoire en fallback (sans persistance)"
+        return 0
+    fi
+    
+    print_info "Démarrage Redis (port $REDIS_PORT)..."
+    cd "$SCRIPT_DIR"
+    nohup redis-server --port $REDIS_PORT > "$LOG_DIR/redis.log" 2>&1 &
+    echo $! >> "$PID_FILE"
+    sleep 2
+    if check_port $REDIS_PORT; then
+        print_success "Redis démarré → localhost:$REDIS_PORT"
+    else
+        print_error "Redis n'a pas démarré. Logs: $LOG_DIR/redis.log"
+    fi
 }
 
 # Démarrer Flask
@@ -181,6 +208,7 @@ show_summary() {
     echo "======================================================================"
     echo
     echo -e "${CYAN}URLs:${NC}"
+    echo "  • Redis:         localhost:$REDIS_PORT (mémoire chatbot)"
     echo "  • Flask API:      http://localhost:$FLASK_PORT"
     echo "  • Flask Docs:     http://localhost:$FLASK_PORT/api-docs"
     FASTAPI_DIR="$(dirname "$SCRIPT_DIR")/ams_project_llm"
@@ -220,6 +248,7 @@ main() {
     echo -e "${BLUE}Démarrage des services...${NC}"
     echo
     
+    start_redis
     start_flask
     start_fastapi
     start_streamlit

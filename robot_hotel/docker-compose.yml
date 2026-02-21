@@ -1,0 +1,55 @@
+# Docker Compose - Robot Hotel + Pepper
+# Usage:
+#   docker-compose up -d              # Flask + Redis
+#   docker-compose up -d flask redis pepper  # Tout (Flask, Redis, Pepper)
+#
+# Variables: PEPPER_IP, FLASK_API_URL, etc. (voir .env.example)
+
+version: "3.8"
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: robot-hotel-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+  flask:
+    build: .
+    container_name: robot-hotel-flask
+    ports:
+      - "5000:5000"
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      FLASK_DEBUG: "false"
+    depends_on:
+      - redis
+    volumes:
+      - ./recordings:/app/recordings
+      - ./storage:/app/storage
+      - ./logs:/app/logs
+    restart: unless-stopped
+    command: python main.py
+
+  pepper:
+    build: .
+    container_name: robot-hotel-pepper
+    environment:
+      FLASK_API_URL: http://localhost:5000
+      PEPPER_IP: ${PEPPER_IP:-192.168.13.213}
+      PEPPER_PORT: ${PEPPER_PORT:-9559}
+    depends_on:
+      - flask
+    network_mode: host
+    restart: "no"
+    working_dir: /app/pepper_test
+    command: python main.py
+    profiles:
+      - pepper
+
+volumes:
+  redis_data:

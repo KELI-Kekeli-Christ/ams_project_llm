@@ -347,3 +347,301 @@ Date d'envoi: {datetime.now().strftime('%d/%m/%Y à %H:%M:%S')}
             "message": error_msg
         }
 
+
+def send_validation_email(
+    client_email: str,
+    client_name: str,
+    client_prenom: str,
+    reservation_data: Dict,
+    session_id: str
+) -> Dict:
+    """
+    Envoie un email au client avec les données de réservation à valider
+    
+    Args:
+        client_email: Email du client
+        client_name: Nom du client
+        client_prenom: Prénom du client
+        reservation_data: Données de réservation validées
+        session_id: ID de session pour référence
+    
+    Returns:
+        dict: Résultat de l'envoi avec status ("success" ou "error") et message
+    """
+    config = load_email_config()
+    
+    # Vérifier si l'envoi d'email est activé
+    if not config.get("email_enabled", True):
+        return {
+            "status": "disabled",
+            "message": "L'envoi d'emails est désactivé dans la configuration"
+        }
+    
+    if not client_email:
+        return {
+            "status": "error",
+            "message": "Aucune adresse email client fournie"
+        }
+    
+    # Si les identifiants SMTP ne sont pas configurés, on envoie juste un message d'avertissement
+    smtp_username = config.get("smtp_username", "").strip()
+    smtp_password = config.get("smtp_password", "").strip()
+    
+    if not smtp_username or not smtp_password:
+        error_msg = f"Configuration SMTP incomplète. smtp_username='{smtp_username}', smtp_password={'*' * len(smtp_password) if smtp_password else 'vide'}"
+        print(f"⚠️ SMTP non configuré. L'email ne peut pas être envoyé.")
+        print(f"   {error_msg}")
+        print(f"   Pour activer l'envoi d'emails, configurez smtp_username et smtp_password dans {CONFIG_FILE}")
+        print(f"   Pour Gmail, smtp_username doit être votre adresse email complète (ex: votre.email@gmail.com)")
+        return {
+            "status": "error",
+            "message": error_msg
+        }
+    
+    try:
+        # Créer le message
+        msg = MIMEMultipart('alternative')
+        msg['Subject'] = f"📋 Validation de votre réservation - Hôtel"
+        msg['From'] = smtp_username
+        msg['To'] = client_email
+        
+        # Formater les données de réservation
+        nom = reservation_data.get('nom', 'N/A')
+        prenom = reservation_data.get('prenom', 'N/A')
+        type_chambre = reservation_data.get('type_chambre', 'N/A')
+        date_arrivee = reservation_data.get('date_arrivee', 'N/A')
+        date_depart = reservation_data.get('date_depart', 'N/A')
+        
+        # Corps du message en HTML
+        html_body = f"""
+        <html>
+          <head>
+            <style>
+              body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+              .container {{ max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9; border-radius: 10px; }}
+              .header {{ color: #2c3e50; border-bottom: 3px solid #3498db; padding-bottom: 10px; }}
+              .content {{ background-color: white; padding: 20px; border-radius: 5px; margin-top: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
+              .data-table {{ width: 100%; border-collapse: collapse; margin-top: 15px; }}
+              .data-table td {{ padding: 8px; border-bottom: 1px solid #eee; }}
+              .data-table .label {{ font-weight: bold; width: 40%; }}
+              .footer {{ margin-top: 20px; padding: 15px; background-color: #e8f4f8; border-radius: 5px; }}
+              .session-id {{ font-family: monospace; background-color: #f8f9fa; padding: 5px; border-radius: 3px; }}
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <h2 class="header">📋 Validation de Réservation</h2>
+              
+              <div class="content">
+                <p>Bonjour <strong>{client_prenom} {client_name}</strong>,</p>
+                
+                <p>Nous avons extrait les informations suivantes de votre demande de réservation. 
+                Veuillez vérifier que toutes les informations sont correctes :</p>
+                
+                <table class="data-table">
+                  <tr>
+                    <td class="label">Nom:</td>
+                    <td>{nom}</td>
+                  </tr>
+                  <tr>
+                    <td class="label">Prénom:</td>
+                    <td>{prenom}</td>
+                  </tr>
+                  <tr>
+                    <td class="label">Type de chambre:</td>
+                    <td>{type_chambre}</td>
+                  </tr>
+                  <tr>
+                    <td class="label">Date d'arrivée:</td>
+                    <td>{date_arrivee}</td>
+                  </tr>
+                  <tr>
+                    <td class="label">Date de départ:</td>
+                    <td>{date_depart}</td>
+                  </tr>
+                </table>
+                
+                <div class="footer">
+                  <p><strong>Que faire maintenant ?</strong></p>
+                  <p>Si les informations sont correctes, votre réservation sera automatiquement confirmée.</p>
+                  <p>Si vous souhaitez apporter des modifications, veuillez contacter la réception de l'hôtel.</p>
+                  <p><small>ID de session: <span class="session-id">{session_id}</span></small></p>
+                </div>
+              </div>
+              
+              <p style="text-align: center; color: #666; font-size: 12px; margin-top: 20px;">
+                Cet email a été envoyé automatiquement par le système de réservation de l'hôtel.
+              </p>
+            </div>
+          </body>
+        </html>
+        """
+        
+        # Créer les parties MIME
+        text_part = MIMEText("Veuillez consulter la version HTML de cet email.", 'plain')
+        html_part = MIMEText(html_body, 'html')
+        
+        # Attacher les parties
+        msg.attach(text_part)
+        msg.attach(html_part)
+        
+        # Connexion SMTP et envoi
+        server = smtplib.SMTP(config["smtp_server"], config["smtp_port"])
+        server.starttls()
+        server.login(smtp_username, smtp_password)
+        server.sendmail(smtp_username, client_email, msg.as_string())
+        server.quit()
+        
+        print(f"✅ Email de validation envoyé à {client_email} pour la session {session_id}")
+        return {
+            "status": "success",
+            "message": f"Email envoyé avec succès à {client_email}",
+            "recipient": client_email
+        }
+        
+    except Exception as e:
+        error_msg = f"Erreur lors de l'envoi de l'email de validation: {e}"
+        print(f"❌ {error_msg}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "status": "error",
+            "message": error_msg
+        }
+
+
+def send_reservation_confirmation(user_data: Dict) -> Dict:
+    """
+    Envoie un email de confirmation de réservation au client et au gestionnaire
+    
+    Args:
+        user_data: Données de la réservation
+        
+    Returns:
+        dict: Résultat de l'envoi
+    """
+    try:
+        config = load_email_config()
+        
+        if not config.get("email_enabled", False):
+            return {
+                "success": False,
+                "error": "Service email désactivé"
+            }
+        
+        smtp_username = config.get("smtp_username")
+        smtp_password = config.get("smtp_password")
+        manager_email = config.get("manager_email")
+        client_email = user_data.get("email")
+        
+        if not smtp_username or not smtp_password:
+            return {
+                "success": False,
+                "error": "Configuration SMTP incomplète"
+            }
+        
+        # Créer le message pour le client
+        client_msg = MIMEMultipart()
+        client_msg['From'] = smtp_username
+        client_msg['To'] = client_email
+        client_msg['Subject'] = "🤖 Confirmation de votre réservation - Hôtel Robot"
+        
+        # Corps HTML pour le client
+        client_html = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #2E86AB;">🤖 Confirmation de réservation</h2>
+            <p>Bonjour <strong>{user_data.get('prenom', '')} {user_data.get('nom', '')}</strong>,</p>
+            
+            <p>Votre réservation a été confirmée avec succès ! Voici le récapitulatif :</p>
+            
+            <div style="background-color: #f5f5f5; padding: 20px; border-radius: 5px; margin: 20px 0;">
+                <h3>📋 Détails de votre séjour</h3>
+                <p><strong>🏨 Chambre :</strong> {user_data.get('type_chambre', 'N/A')}</p>
+                <p><strong>📅 Arrivée :</strong> {user_data.get('date_arrivee', 'N/A')}</p>
+                <p><strong>📅 Départ :</strong> {user_data.get('date_depart', 'N/A')}</p>
+                <p><strong>👤 Client :</strong> {user_data.get('prenom', '')} {user_data.get('nom', '')}</p>
+                <p><strong>📧 Email :</strong> {user_data.get('email', 'N/A')}</p>
+            </div>
+            
+            <p>Nous vous attendons avec impatience !</p>
+            <p>Cordialement,<br>L'équipe de l'Hôtel Robot 🤖</p>
+        </body>
+        </html>
+        """
+        
+        # Créer le message pour le gestionnaire
+        manager_msg = MIMEMultipart()
+        manager_msg['From'] = smtp_username
+        manager_msg['To'] = manager_email
+        manager_msg['Subject'] = "🆕 Nouvelle réservation confirmée - Hôtel Robot"
+        
+        # Corps HTML pour le gestionnaire
+        manager_html = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #E74C3C;">🆕 Nouvelle réservation</h2>
+            <p>Une nouvelle réservation vient d'être confirmée :</p>
+            
+            <div style="background-color: #f5f5f5; padding: 20px; border-radius: 5px; margin: 20px 0;">
+                <h3>📋 Détails de la réservation</h3>
+                <p><strong>👤 Client :</strong> {user_data.get('prenom', '')} {user_data.get('nom', '')}</p>
+                <p><strong>📧 Email :</strong> {user_data.get('email', 'N/A')}</p>
+                <p><strong>🏨 Chambre :</strong> {user_data.get('type_chambre', 'N/A')}</p>
+                <p><strong>📅 Arrivée :</strong> {user_data.get('date_arrivee', 'N/A')}</p>
+                <p><strong>📅 Départ :</strong> {user_data.get('date_depart', 'N/A')}</p>
+                <p><strong>📅 Confirmée le :</strong> {datetime.now().strftime('%d/%m/%Y %H:%M')}</p>
+            </div>
+            
+            <p>Le client a été notifié par email.</p>
+        </body>
+        </html>
+        """
+        
+        # Envoyer à tous les destinataires
+        results = []
+        
+        # Email au client
+        if client_email:
+            try:
+                client_msg.attach(MIMEText(client_html, 'html'))
+                server = smtplib.SMTP(config["smtp_server"], config["smtp_port"])
+                server.starttls()
+                server.login(smtp_username, smtp_password)
+                server.sendmail(smtp_username, client_email, client_msg.as_string())
+                server.quit()
+                results.append(f"✅ Email client envoyé à {client_email}")
+                print(f"✅ Email de confirmation envoyé au client: {client_email}")
+            except Exception as e:
+                results.append(f"❌ Échec email client: {e}")
+                print(f"❌ Erreur envoi email client: {e}")
+        
+        # Email au gestionnaire
+        try:
+            manager_msg.attach(MIMEText(manager_html, 'html'))
+            server = smtplib.SMTP(config["smtp_server"], config["smtp_port"])
+            server.starttls()
+            server.login(smtp_username, smtp_password)
+            server.sendmail(smtp_username, manager_email, manager_msg.as_string())
+            server.quit()
+            results.append(f"✅ Email gestionnaire envoyé à {manager_email}")
+            print(f"✅ Email de notification envoyé au gestionnaire: {manager_email}")
+        except Exception as e:
+            results.append(f"❌ Échec email gestionnaire: {e}")
+            print(f"❌ Erreur envoi email gestionnaire: {e}")
+        
+        return {
+            "success": True,
+            "message": "Emails de confirmation envoyés",
+            "details": results
+        }
+        
+    except Exception as e:
+        error_msg = f"Erreur lors de l'envoi des emails de confirmation: {e}"
+        print(f"❌ {error_msg}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "success": False,
+            "error": error_msg
+        }

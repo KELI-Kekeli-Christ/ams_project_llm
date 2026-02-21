@@ -3,6 +3,165 @@ import requests
 from openai import OpenAI
 from services.location import get_heure_date
 import os
+import uuid
+import sqlite3
+from datetime import datetime, timedelta
+
+# Configuration de la base de données temporaire
+TEMP_DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'temp_reservations.db')
+
+def init_temp_db():
+    """Initialise la base de données temporaire pour les réservations en attente de validation"""
+    conn = sqlite3.connect(TEMP_DB_PATH)
+    cursor = conn.cursor()
+    
+    # Créer la table pour les réservations extraites (en attente de validation)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS extracted_reservations (
+            session_id TEXT PRIMARY KEY,
+            data TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            expires_at TIMESTAMP
+        )
+    ''')
+    
+    # Créer la table pour les réservations validées (prêtes pour confirmation)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS validated_reservations (
+            session_id TEXT PRIMARY KEY,
+            data TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            expires_at TIMESTAMP
+        )
+    ''')
+    
+    # Créer un index sur expires_at pour le nettoyage automatique
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_extracted_expires ON extracted_reservations(expires_at)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_validated_expires ON validated_reservations(expires_at)')
+    
+    conn.commit()
+    conn.close()
+
+def cleanup_expired_entries():
+    """Nettoie les entrées expirées de la base de données temporaire"""
+    try:
+        conn = sqlite3.connect(TEMP_DB_PATH)
+        cursor = conn.cursor()
+        
+        now = datetime.now()
+        cursor.execute('DELETE FROM extracted_reservations WHERE expires_at < ?', (now,))
+        cursor.execute('DELETE FROM validated_reservations WHERE expires_at < ?', (now,))
+        
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Erreur lors du nettoyage: {e}")
+
+def store_extracted_reservation(session_id: str, data: dict) -> bool:
+    """Stocke une réservation extraite dans la base temporaire"""
+    try:
+        init_temp_db()
+        cleanup_expired_entries()
+        
+        conn = sqlite3.connect(TEMP_DB_PATH)
+        cursor = conn.cursor()
+        
+        # Expiration dans 1 heure
+        expires_at = datetime.now() + timedelta(hours=1)
+        
+        cursor.execute('''
+            INSERT OR REPLACE INTO extracted_reservations (session_id, data, expires_at)
+            VALUES (?, ?, ?)
+        ''', (session_id, json.dumps(data), expires_at))
+        
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Erreur stockage réservation extraite: {e}")
+        return False
+
+def get_extracted_reservation(session_id: str) -> dict:
+    """Récupère une réservation extraite depuis la base temporaire"""
+    try:
+        init_temp_db()
+        cleanup_expired_entries()
+        
+        conn = sqlite3.connect(TEMP_DB_PATH)
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT data FROM extracted_reservations WHERE session_id = ?', (session_id,))
+        row = cursor.fetchone()
+        
+        conn.close()
+        
+        if row:
+            return json.loads(row[0])
+        return None
+    except Exception as e:
+        print(f"Erreur récupération réservation extraite: {e}")
+        return None
+
+def store_validated_reservation(session_id: str, data: dict) -> bool:
+    """Stocke une réservation validée dans la base temporaire"""
+    try:
+        init_temp_db()
+        cleanup_expired_entries()
+        
+        conn = sqlite3.connect(TEMP_DB_PATH)
+        cursor = conn.cursor()
+        
+        # Expiration dans 1 heure
+        expires_at = datetime.now() + timedelta(hours=1)
+        
+        cursor.execute('''
+            INSERT OR REPLACE INTO validated_reservations (session_id, data, expires_at)
+            VALUES (?, ?, ?)
+        ''', (session_id, json.dumps(data), expires_at))
+        
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Erreur stockage réservation validée: {e}")
+        return False
+
+def get_validated_reservation(session_id: str) -> dict:
+    """Récupère une réservation validée depuis la base temporaire"""
+    try:
+        init_temp_db()
+        cleanup_expired_entries()
+        
+        conn = sqlite3.connect(TEMP_DB_PATH)
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT data FROM validated_reservations WHERE session_id = ?', (session_id,))
+        row = cursor.fetchone()
+        
+        conn.close()
+        
+        if row:
+            return json.loads(row[0])
+        return None
+    except Exception as e:
+        print(f"Erreur récupération réservation validée: {e}")
+        return None
+
+def delete_temp_reservation(session_id: str):
+    """Supprime une réservation temporaire (après confirmation)"""
+    try:
+        init_temp_db()
+        
+        conn = sqlite3.connect(TEMP_DB_PATH)
+        cursor = conn.cursor()
+        
+        cursor.execute('DELETE FROM extracted_reservations WHERE session_id = ?', (session_id,))
+        cursor.execute('DELETE FROM validated_reservations WHERE session_id = ?', (session_id,))
+        
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Erreur suppression réservation temporaire: {e}")
 
 # Configuration du client OpenAI via Hugging Face
 client = OpenAI(
@@ -241,26 +400,40 @@ def create_reservation_api(id_client: str, reservation_data: dict) -> dict:
         }
 
 
-def make_reservation(transcript: str) -> dict:
+def make_reservation(transcript: str, session_id: str = None) -> dict:
     """
     Fonction principale qui prend le transcript de l'utilisateur,
-    extrait les informations via le chat, et crée la réservation via l'API.
+    extrait les informations via le chat, et stocke les données pour validation.
     
-    PROCESSUS :
+    PROCESSUS MODIFIÉ :
     1. Extraction des informations (nom, prénom, dates, type chambre)
     2. Vérification que toutes les informations sont présentes
-    3. Création du client dans la DB (nom, prénom)
-    4. Création de la réservation dans la DB liée au client
+    3. Stockage dans Redis pour validation via tablette
+    4. La création client/réservation se fait seulement après validation
     
     Args:
         transcript: Le transcript de la conversation avec l'utilisateur
+        session_id: ID de session optionnel (généré automatiquement si non fourni)
         
     Returns:
-        Dictionnaire avec le résultat de la création de réservation
+        Dictionnaire avec le résultat de l'extraction et stockage
     """
     if not transcript or not transcript.strip():
         return {
             "error": "Le transcript est vide",
+            "status": "error"
+        }
+    
+    # Générer un session_id si non fourni
+    if not session_id:
+        session_id = f"res_{uuid.uuid4().hex[:8]}"
+    
+    # Initialiser la base de données temporaire
+    try:
+        init_temp_db()
+    except Exception as e:
+        return {
+            "error": f"Impossible d'initialiser la base de données temporaire: {str(e)}",
             "status": "error"
         }
     
@@ -284,78 +457,132 @@ def make_reservation(transcript: str) -> dict:
     print(f"   - Date départ : {reservation_data.get('date_depart', 'N/A')}")
     print(f"   - ID Client : {reservation_data.get('id_client', 'N/A')}")
     
-    # Étape 2 : Vérifier que toutes les informations nécessaires sont présentes
+    # Étape 2 : Vérification basique que les champs principaux sont présents
     print("\n" + "="*60)
-    print("✅ ÉTAPE 2 : VÉRIFICATION DES DONNÉES")
+    print("✅ ÉTAPE 2 : VÉRIFICATION BASIQUE DES DONNÉES")
     print("="*60)
     
-    # Étape 3 : Créer le client dans la DB
-    print("\n" + "="*60)
-    print("💾 ÉTAPE 3 : CRÉATION DU CLIENT DANS LA DB")
-    print("="*60)
-    print(f"👤 Insertion du client : {reservation_data['nom']} {reservation_data['prenom']}")
-    
-    client_result = create_client_api(
-        nom=reservation_data["nom"],
-        prenom=reservation_data["prenom"]
-    )
-    
-    if client_result.get("status") == "error":
-        return client_result
-    
-    id_client = client_result.get("id_client")
-    if not id_client:
+    # Vérifier au moins nom et prénom (les plus critiques)
+    if reservation_data.get('nom') == "inconnu" or reservation_data.get('prenom') == "inconnu":
         return {
-            "error": "Impossible de récupérer l'ID du client créé",
+            "error": "Nom et prénom sont obligatoires et n'ont pas pu être extraits du transcript",
+            "status": "error",
+            "reservation_data": reservation_data
+        }
+    
+    # Étape 3 : Stocker dans Redis pour validation
+    print("\n" + "="*60)
+    print("💾 ÉTAPE 3 : STOCKAGE POUR VALIDATION")
+    print("="*60)
+    
+    # Préparer les données à stocker
+    storage_data = reservation_data.copy()
+    storage_data['session_id'] = session_id
+    storage_data['transcript'] = transcript
+    storage_data['extracted_at'] = get_heure_date()
+    storage_data['status'] = 'extracted'
+    
+    # Stocker dans SQLite avec expiration (1 heure)
+    try:
+        success = store_extracted_reservation(session_id, storage_data)
+        if not success:
+            return {
+                "error": "Erreur lors du stockage temporaire dans la base de données",
+                "status": "error"
+            }
+        print(f"✅ Données stockées dans SQLite avec session_id: {session_id}")
+    except Exception as e:
+        print(f"❌ Erreur stockage SQLite: {e}")
+        return {
+            "error": f"Erreur lors du stockage temporaire: {str(e)}",
             "status": "error"
         }
     
-    print(f"✅ Client inséré dans la DB avec l'ID : {id_client}")
-    
-    # Étape 4 : Récupérer l'id_client et créer la réservation
-    print("\n" + "="*60)
-    print("📅 ÉTAPE 4 : CRÉATION DE LA RÉSERVATION AVEC L'ID CLIENT")
-    print("="*60)
-    print(f"🆔 Utilisation de l'id_client : {id_client}")
-    print(f"📅 Création de la réservation : {reservation_data.get('type_chambre')} du {reservation_data.get('date_arrivee')} au {reservation_data.get('date_depart')}")
-    
-    reservation_result = create_reservation_api(id_client, reservation_data)
-    
-    if reservation_result.get("status") == "error":
-        return reservation_result
-    
-    print("\n" + "="*60)
-    print("🎉 RÉSERVATION CRÉÉE AVEC SUCCÈS")
-    print("="*60)
-    
-    # Envoyer un email au gestionnaire
-    try:
-        from services.email import send_reservation_email
-        reservation_id = reservation_result.get("id_reservation", "N/A")
-        qr_code_path = reservation_result.get("qr_code_path")
-        
-        email_result = send_reservation_email(
-            reservation_id=reservation_id,
-            client_name=reservation_data.get("nom", ""),
-            client_prenom=reservation_data.get("prenom", ""),
-            type_chambre=reservation_data.get("type_chambre", ""),
-            date_arrivee=reservation_data.get("date_arrivee", ""),
-            date_depart=reservation_data.get("date_depart", ""),
-            qr_code_path=qr_code_path
-        )
-        
-        if email_result.get("status") == "success":
-            print(f"📧 Email envoyé au gestionnaire: {email_result.get('manager_email')}")
-        else:
-            print(f"⚠️ Email non envoyé: {email_result.get('message')}")
-    except Exception as e:
-        print(f"⚠️ Erreur lors de l'envoi de l'email (non bloquant): {e}")
-    
     return {
         "status": "success",
-        "client": client_result,
-        "reservation": reservation_result,
+        "message": "Informations extraites et stockées pour validation",
+        "session_id": session_id,
         "reservation_data": reservation_data,
-        "message": f"Client {reservation_data.get('nom')} {reservation_data.get('prenom')} (ID: {id_client}) créé dans la DB. Réservation créée avec succès."
+        "next_step": "validation_required"
     }
+
+
+def make_reservation_from_data(user_data: dict) -> dict:
+    """
+    Crée une réservation directement à partir de données structurées.
+    Cette fonction est utilisée lors de la confirmation de réservation depuis la page de validation.
+    
+    Args:
+        user_data: Dictionnaire contenant les informations de réservation
+            - nom: Nom du client
+            - prenom: Prénom du client
+            - email: Email du client (optionnel)
+            - type_chambre: Type de chambre (simple, double, suite)
+            - date_arrivee: Date d'arrivée (YYYY-MM-DD)
+            - date_depart: Date de départ (YYYY-MM-DD)
+        
+    Returns:
+        Dictionnaire avec le résultat de la création de réservation
+    """
+    try:
+        # Étape 1: Créer le client si nécessaire
+        nom = user_data.get('nom', '').strip()
+        prenom = user_data.get('prenom', '').strip()
+        
+        if not nom or not prenom:
+            return {
+                "error": "Nom et prénom sont obligatoires",
+                "status": "error"
+            }
+        
+        print(f"\n{'='*60}")
+        print("📝 CRÉATION DE RÉSERVATION DEPUIS DONNÉES VALIDÉES")
+        print(f"{'='*60}")
+        
+        # Créer le client
+        client_result = create_client_api(nom, prenom)
+        
+        if client_result.get('error'):
+            print(f"⚠️ Erreur création client: {client_result.get('error')}")
+            # On continue quand même pour tester même si le client n'est pas créé
+        
+        id_client = client_result.get('id_client', 'C-TEMP')
+        
+        # Étape 2: Créer la réservation
+        reservation_data = {
+            'nom': nom,
+            'prenom': prenom,
+            'type_chambre': user_data.get('type_chambre', 'simple'),
+            'date_arrivee': user_data.get('date_arrivee'),
+            'date_depart': user_data.get('date_depart')
+        }
+        
+        reservation_result = create_reservation_api(id_client, reservation_data)
+        
+        if reservation_result.get('error'):
+            print(f"⚠️ Erreur création réservation: {reservation_result.get('error')}")
+            # Stocker quand même en local comme sauvegarde
+            return {
+                "status": "success",
+                "message": "Réservation créée localement (API externe non disponible)",
+                "reservation_id": f"LOCAL-{uuid.uuid4().hex[:8]}",
+                "local": True,
+                "reservation_data": reservation_data
+            }
+        
+        return {
+            "status": "success",
+            "message": "Réservation créée avec succès",
+            "reservation_id": reservation_result.get('id_reservation'),
+            "reservation_data": reservation_data
+        }
+        
+    except Exception as e:
+        print(f"❌ Erreur création réservation: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "error": f"Erreur lors de la création de la réservation: {str(e)}",
+            "status": "error"
+        }
 

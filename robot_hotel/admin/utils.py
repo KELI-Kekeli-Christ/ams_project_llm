@@ -97,9 +97,19 @@ def test_api_connection() -> bool:
     except Exception:
         return False
 
-def chat_api(message: str) -> Dict:
+def chat_api(message: str, session_id: Optional[str] = None) -> Dict:
     """Envoie un message au chatbot"""
-    return make_api_request("POST", "/chat", json_data={"message": message})
+    payload = {"message": message}
+    if session_id:
+        payload["session_id"] = session_id
+    return make_api_request("POST", "/chat", json_data=payload)
+
+def chat_voice(file, session_id: Optional[str] = None) -> Dict:
+    """Envoie un fichier audio au chat vocal : transcription + réponse du bot (comme l’interface web)."""
+    data = {}
+    if session_id:
+        data["session_id"] = session_id
+    return make_api_request("POST", "/chat/voice", files={"file": file}, data=data if data else None)
 
 def get_location() -> Dict:
     """Récupère l'heure et la date"""

@@ -1,0 +1,46 @@
+# Environnements virtuels
+env/
+venv/
+.venv/
+*/env/
+*/venv/
+ams_project_llm/env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Logs et données temporaires
+logs/
+*.log
+recordings/
+*.wav
+storage/
+*.db
+*.sqlite
+
+# IDE et OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Documentation et tests (optionnel, garder si besoin)
+# TODO.md
+# *.md
+
+# Fichiers volumineux inutiles
+packages_pepper/odler_test/
+*.backup

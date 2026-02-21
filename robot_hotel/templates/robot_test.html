@@ -1,0 +1,882 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pepper Robot - Interface de Test Web</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary-gradient: linear-gradient(135deg, #667eea 0%, #8b5cf6 100%);
+            --success-color: #10b981;
+            --error-color: #ef4444;
+            --warning-color: #f59e0b;
+            --bg-color: #f3f4f6;
+        }
+        
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg-color);
+            min-height: 100vh;
+        }
+        
+        .header {
+            background: var(--primary-gradient);
+            color: white;
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        
+        .header h1 { font-size: 28px; margin-bottom: 5px; }
+        .header p { opacity: 0.9; font-size: 14px; }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        
+        @media (max-width: 900px) {
+            .container { grid-template-columns: 1fr; }
+        }
+        
+        .card {
+            background: white;
+            border-radius: 16px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        }
+        
+        .card h2 {
+            font-size: 18px;
+            margin-bottom: 15px;
+            color: #333;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        
+        .status-inactive { background: #e5e7eb; color: #6b7280; }
+        .status-active { background: #d1fae5; color: #059669; }
+        .status-recording { background: #fee2e2; color: #dc2626; }
+        
+        /* Camera Section */
+        .camera-container {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 4/3;
+            background: #1f2937;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        
+        #videoElement {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        
+        #canvasOverlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+        
+        .camera-controls {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        
+        .face-info {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 12px;
+        }
+        
+        /* Microphone Section */
+        .mic-container {
+            text-align: center;
+            padding: 30px;
+        }
+        
+        .mic-button {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            border: none;
+            cursor: pointer;
+            font-size: 40px;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto;
+        }
+        
+        .mic-button.inactive {
+            background: var(--success-color);
+            box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4);
+        }
+        
+        .mic-button.active {
+            background: var(--error-color);
+            box-shadow: 0 4px 15px rgba(239, 68, 68, 0.4);
+            animation: pulse 1s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        
+        .mic-status {
+            margin-top: 15px;
+            font-size: 14px;
+            color: #6b7280;
+        }
+        
+        .wake-word-info {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f3f4f6;
+            border-radius: 8px;
+            font-size: 13px;
+        }
+        
+        .wake-word-info strong { color: #667eea; }
+        
+        /* Chat Section */
+        .chat-container {
+            height: 400px;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px;
+            background: #f9fafb;
+            border-radius: 8px;
+            margin-bottom: 10px;
+        }
+        
+        .message {
+            padding: 10px 14px;
+            border-radius: 12px;
+            margin-bottom: 8px;
+            max-width: 80%;
+        }
+        
+        .message.bot {
+            background: #e5e7eb;
+            color: #1f2937;
+            align-self: flex-start;
+        }
+        
+        .message.user {
+            background: var(--primary-gradient);
+            color: white;
+            margin-left: auto;
+        }
+        
+        .chat-input {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .chat-input input {
+            flex: 1;
+            padding: 12px;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+        
+        .chat-input button {
+            padding: 12px 20px;
+            background: var(--primary-gradient);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        
+        /* Buttons */
+        .btn {
+            padding: 10px 16px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 500;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+        
+        .btn-primary {
+            background: var(--primary-gradient);
+            color: white;
+        }
+        
+        .btn-secondary {
+            background: #e5e7eb;
+            color: #374151;
+        }
+        
+        .btn:hover { transform: translateY(-1px); }
+        
+        /* Controls */
+        .controls-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin-top: 15px;
+        }
+        
+        .control-btn {
+            padding: 12px;
+            background: #f3f4f6;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.2s;
+        }
+        
+        .control-btn:hover {
+            background: #e5e7eb;
+        }
+        
+        .control-btn.active {
+            background: #dbeafe;
+            border-color: #3b82f6;
+            color: #1d4ed8;
+        }
+        
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 5px;
+            margin-bottom: 15px;
+        }
+        
+        .tab {
+            padding: 10px 20px;
+            background: #f3f4f6;
+            border: none;
+            border-radius: 8px 8px 0 0;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        
+        .tab.active {
+            background: var(--primary-gradient);
+            color: white;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        /* Logs */
+        .logs-container {
+            height: 150px;
+            overflow-y: auto;
+            background: #1f2937;
+            color: #10b981;
+            font-family: monospace;
+            font-size: 12px;
+            padding: 10px;
+            border-radius: 8px;
+        }
+        
+        .log-entry { margin-bottom: 4px; }
+        .log-entry.error { color: #ef4444; }
+        .log-entry.warning { color: #f59e0b; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🤖 Pepper Robot - Interface de Test Web</h1>
+        <p>Testez toutes les fonctionnalités du robot sans avoir besoin du robot physique</p>
+    </div>
+    
+    <div class="container">
+        <!-- Left Column -->
+        <div>
+            <!-- Camera Card -->
+            <div class="card">
+                <h2>
+                    📷 Caméra & Détection de Visage
+                    <span id="cameraStatus" class="status-badge status-inactive">Inactive</span>
+                </h2>
+                <div class="camera-container">
+                    <video id="videoElement" autoplay playsinline></video>
+                    <canvas id="canvasOverlay"></canvas>
+                    <div class="face-info" id="faceInfo">Aucun visage détecté</div>
+                </div>
+                <div class="camera-controls">
+                    <button class="btn btn-primary" onclick="startCamera()">Démarrer Caméra</button>
+                    <button class="btn btn-secondary" onclick="stopCamera()">Arrêter Caméra</button>
+                    <button class="btn btn-secondary" onclick="toggleFaceDetection()">Toggle Détection</button>
+                </div>
+            </div>
+            
+            <!-- Logs Card -->
+            <div class="card" style="margin-top: 20px;">
+                <h2>📋 Journaux (Logs)</h2>
+                <div class="logs-container" id="logs"></div>
+            </div>
+        </div>
+        
+        <!-- Right Column -->
+        <div>
+            <!-- Tabs -->
+            <div class="tabs">
+                <button class="tab active" onclick="switchTab('mic')">🎤 Microphone</button>
+                <button class="tab" onclick="switchTab('chat')">💬 Chat</button>
+                <button class="tab" onclick="switchTab('robot')">🤖 Contrôle</button>
+            </div>
+            
+            <!-- Microphone Tab -->
+            <div class="tab-content active" id="tab-mic">
+                <div class="card">
+                    <h2>
+                        Enregistrement Vocal
+                        <span id="recStatus" class="status-badge status-inactive">Inactif</span>
+                    </h2>
+                    <div class="mic-container">
+                        <button id="micButton" class="mic-button inactive" onclick="toggleRecording()">
+                            <span id="micIcon">🎤</span>
+                        </button>
+                        <p class="mic-status" id="micStatus">Cliquez pour commencer l'enregistrement</p>
+                        
+                        <div class="wake-word-info">
+                            <strong>💡 Mode Wake Word:</strong><br>
+                            Dites "bonjour", "hello" ou "hola" pour activer automatiquement l'enregistrement.<br>
+                            <small>L'enregistrement s'arrêtera automatiquement après 2 secondes de silence.</small>
+                        </div>
+                        
+                        <div class="controls-grid">
+                            <button class="control-btn" onclick="startWakeWordListener()">
+                                🎯 Démarrer Wake Word
+                            </button>
+                            <button class="control-btn" onclick="stopWakeWordListener()">
+                                ⏹ Arrêter Wake Word
+                            </button>
+                        </div>
+                        
+                        <div style="margin-top: 15px;">
+                            <button class="btn btn-primary" onclick="testWakeWord()">Tester Wake Word</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Chat Tab -->
+            <div class="tab-content" id="tab-chat">
+                <div class="card">
+                    <h2>
+                        💬 Discussion avec le Chatbot
+                        <span id="chatStatus" class="status-badge status-inactive">Déconnecté</span>
+                    </h2>
+                    <div class="chat-container">
+                        <div class="chat-messages" id="chatMessages">
+                            <div class="message bot">
+                                Bonjour! Je suis Pepper. Comment puis-je vous aider?
+                            </div>
+                        </div>
+                        <div class="chat-input">
+                            <input type="text" id="chatInput" placeholder="Tapez votre message..." onkeypress="handleChatKeyPress(event)">
+                            <button onclick="sendChatMessage()">Envoyer</button>
+                        </div>
+                    </div>
+                    <div style="margin-top: 10px;">
+                        <button class="btn btn-secondary" onclick="loadChatInterface()">Ouvrir Interface Chat Complète</button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Robot Control Tab -->
+            <div class="tab-content" id="tab-robot">
+                <div class="card">
+                    <h2>🤖 Contrôle du Robot</h2>
+                    <div class="controls-grid">
+                        <button class="control-btn" onclick="robotSay('Bonjour! Je suis Pepper.')">
+                            🗣️ Dire Bonjour
+                        </button>
+                        <button class="control-btn" onclick="robotSay('Comment puis-je vous aider?')">
+                            ❓ Demander
+                        </button>
+                        <button class="control-btn" onclick="showQRCode()">
+                            📱 Afficher QR Code
+                        </button>
+                        <button class="control-btn" onclick="showTabletInterface()">
+                            📱 Interface Tablette
+                        </button>
+                    </div>
+                    
+                    <div style="margin-top: 20px;">
+                        <h3>Navigation</h3>
+                        <div class="controls-grid">
+                            <button class="control-btn" onclick="navigateTo('/')">
+                                🏠 Accueil
+                            </button>
+                            <button class="control-btn" onclick="navigateTo('/chat')">
+                                💬 Chat
+                            </button>
+                            <button class="control-btn" onclick="navigateTo('/chat/qrcode/html')">
+                                📱 QR Code
+                            </button>
+                            <button class="control-btn" onclick="refreshPage()">
+                                🔄 Rafraîchir
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // ==================== Configuration ====================
+        const API_URL = window.location.origin;
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let isRecording = false;
+        let wakeWordInterval = null;
+        let faceDetectionEnabled = false;
+        let faceDetectionInterval = null;
+        
+        // ==================== Logging ====================
+        function log(message, type = 'info') {
+            const logs = document.getElementById('logs');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            const time = new Date().toLocaleTimeString();
+            entry.textContent = `[${time}] ${message}`;
+            logs.appendChild(entry);
+            logs.scrollTop = logs.scrollHeight;
+            console.log(message);
+        }
+        
+        // ==================== Tabs ====================
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            
+            document.querySelector(`.tab[onclick="switchTab('${tabName}')"]`).classList.add('active');
+            document.getElementById(`tab-${tabName}`).classList.add('active');
+        }
+        
+        // ==================== Camera & Face Detection ====================
+        let videoStream = null;
+        
+        async function startCamera() {
+            try {
+                videoStream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: 'user', width: 640, height: 480 } 
+                });
+                document.getElementById('videoElement').srcObject = videoStream;
+                document.getElementById('cameraStatus').className = 'status-badge status-active';
+                document.getElementById('cameraStatus').textContent = 'Active';
+                log('Caméra démarrée avec succès');
+            } catch (err) {
+                log('Erreur caméra: ' + err.message, 'error');
+            }
+        }
+        
+        function stopCamera() {
+            if (videoStream) {
+                videoStream.getTracks().forEach(track => track.stop());
+                videoStream = null;
+            }
+            document.getElementById('videoElement').srcObject = null;
+            document.getElementById('cameraStatus').className = 'status-badge status-inactive';
+            document.getElementById('cameraStatus').textContent = 'Inactive';
+            log('Caméra arrêtée');
+        }
+        
+        async function toggleFaceDetection() {
+            faceDetectionEnabled = !faceDetectionEnabled;
+            
+            if (faceDetectionEnabled) {
+                log('Démarrage détection de visage...');
+                await startFaceDetection();
+            } else {
+                stopFaceDetection();
+            }
+        }
+        
+        async function startFaceDetection() {
+            if (!videoStream) {
+                log('Démarrez la caméra d\'abord', 'warning');
+                return;
+            }
+            
+            try {
+                // Load face detection model
+                const model = await faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/');
+                log('Modèle de détection de visage chargé');
+                
+                const video = document.getElementById('videoElement');
+                const canvas = document.getElementById('canvasOverlay');
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                
+                faceDetectionInterval = setInterval(async () => {
+                    const displaySize = { width: video.videoWidth, height: video.videoHeight };
+                    faceapi.matchDimensions(canvas, displaySize);
+                    
+                    const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions());
+                    
+                    const resizedDetections = faceapi.resizeResults(detections, displaySize);
+                    
+                    const ctx = canvas.getContext('2d');
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    
+                    if (resizedDetections.length > 0) {
+                        resizedDetections.forEach(det => {
+                            const box = det.box;
+                            ctx.strokeStyle = '#10b981';
+                            ctx.lineWidth = 3;
+                            ctx.strokeRect(box.x, box.y, box.width, box.height);
+                        });
+                        
+                        document.getElementById('faceInfo').textContent = 
+                            `${resizedDetections.length} visage(x) détecté(s)`;
+                        document.getElementById('faceInfo').style.background = 'rgba(16, 185, 129, 0.8)';
+                    } else {
+                        document.getElementById('faceInfo').textContent = 'Aucun visage détecté';
+                        document.getElementById('faceInfo').style.background = 'rgba(0,0,0,0.7)';
+                    }
+                }, 100);
+                
+                log('Détection de visage activée');
+            } catch (err) {
+                log('Erreur détection: ' + err.message, 'error');
+                // Fallback: simple motion detection
+                startSimpleFaceDetection();
+            }
+        }
+        
+        function startSimpleFaceDetection() {
+            const video = document.getElementById('videoElement');
+            const canvas = document.getElementById('canvasOverlay');
+            const ctx = canvas.getContext('2d');
+            
+            faceDetectionInterval = setInterval(() => {
+                if (video.readyState === 4) {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    ctx.drawImage(video, 0, 0);
+                    
+                    // Simple "motion" detection as fallback
+                    const info = document.getElementById('faceInfo');
+                    info.textContent = '🎯 Détection simple (pas de modèle)';
+                    info.style.background = 'rgba(245, 158, 11, 0.8)';
+                }
+            }, 500);
+            
+            log('Détection simple activée (sans modèle)');
+        }
+        
+        function stopFaceDetection() {
+            if (faceDetectionInterval) {
+                clearInterval(faceDetectionInterval);
+                faceDetectionInterval = null;
+            }
+            
+            const canvas = document.getElementById('canvasOverlay');
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            document.getElementById('faceInfo').textContent = 'Détection arrêtée';
+            document.getElementById('faceInfo').style.background = 'rgba(0,0,0,0.7)';
+            log('Détection de visage arrêtée');
+        }
+        
+        // ==================== Microphone & Recording ====================
+        async function toggleRecording() {
+            if (isRecording) {
+                stopRecording();
+            } else {
+                await startRecording();
+            }
+        }
+        
+        async function startRecording() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
+                
+                mediaRecorder.ondataavailable = event => {
+                    audioChunks.push(event.data);
+                };
+                
+                mediaRecorder.onstop = async () => {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                    await sendAudioToServer(audioBlob);
+                    stream.getTracks().forEach(track => track.stop());
+                };
+                
+                mediaRecorder.start();
+                isRecording = true;
+                
+                // UI Update
+                document.getElementById('micButton').className = 'mic-button active';
+                document.getElementById('micButton').innerHTML = '<span>⏹</span>';
+                document.getElementById('micStatus').textContent = 'Enregistrement en cours... Parlez maintenant!';
+                document.getElementById('recStatus').className = 'status-badge status-recording';
+                document.getElementById('recStatus').textContent = 'Enregistrement';
+                
+                // Auto stop after silence
+                startSilenceDetection();
+                
+                log('Enregistrement démarré');
+            } catch (err) {
+                log('Erreur microphone: ' + err.message, 'error');
+            }
+        }
+        
+        function stopRecording() {
+            if (mediaRecorder && isRecording) {
+                mediaRecorder.stop();
+                isRecording = false;
+                
+                // UI Update
+                document.getElementById('micButton').className = 'mic-button inactive';
+                document.getElementById('micButton').innerHTML = '<span>🎤</span>';
+                document.getElementById('micStatus').textContent = 'Cliquez pour enregistrer';
+                document.getElementById('recStatus').className = 'status-badge status-inactive';
+                document.getElementById('recStatus').textContent = 'Inactif';
+                
+                log('Enregistrement arrêté');
+            }
+        }
+        
+        let silenceTimeout = null;
+        
+        function startSilenceDetection() {
+            // Auto stop after 10 seconds max
+            setTimeout(() => {
+                if (isRecording) {
+                    log('Timeout: arrêt automatique');
+                    stopRecording();
+                }
+            }, 10000);
+        }
+        
+        async function sendAudioToServer(audioBlob) {
+            log('Envoi de l\'audio au serveur...');
+            
+            const formData = new FormData();
+            formData.append('file', audioBlob, 'recording.wav');
+            
+            try {
+                const response = await fetch(`${API_URL}/transcribe`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (data.text) {
+                    log(`Transcription: "${data.text}"`);
+                    
+                    // Check for wake word
+                    const wakeWords = ['bonjour', 'hello', 'hola', 'hey pepper'];
+                    const lowerText = data.text.toLowerCase();
+                    
+                    if (wakeWords.some(w => lowerText.includes(w))) {
+                        log('🎯 Wake word détecté!', 'warning');
+                        addChatMessage('bot', `J'ai détecté "${data.text}". Comment puis-je vous aider?`);
+                    } else {
+                        addChatMessage('user', data.text);
+                        // Send to chat
+                        await sendToChatbot(data.text);
+                    }
+                } else {
+                    log('Aucune transcription reçue', 'warning');
+                }
+            } catch (err) {
+                log('Erreur envoi audio: ' + err.message, 'error');
+            }
+        }
+        
+        // ==================== Wake Word ====================
+        async function startWakeWordListener() {
+            log('Démarrage de l\'écoute wake word...');
+            
+            try {
+                const response = await fetch(`${API_URL}/record/wake_word/start`, {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                log(data.message || 'Wake word démarré');
+                
+                // Start polling
+                wakeWordInterval = setInterval(checkWakeWordStatus, 2000);
+            } catch (err) {
+                log('Erreur wake word: ' + err.message, 'error');
+            }
+        }
+        
+        async function checkWakeWordStatus() {
+            try {
+                const response = await fetch(`${API_URL}/record/wake_word/status`);
+                const data = await response.json();
+                
+                if (data.wake_word_detected) {
+                    log('🎯 Wake word détecté!', 'warning');
+                    
+                    // Reset and start recording
+                    await fetch(`${API_URL}/record/wake_word/reset`, { method: 'POST' });
+                    await startRecording();
+                }
+            } catch (err) {
+                // Silent fail
+            }
+        }
+        
+        function stopWakeWordListener() {
+            if (wakeWordInterval) {
+                clearInterval(wakeWordInterval);
+                wakeWordInterval = null;
+            }
+            log('Wake word arrêté');
+        }
+        
+        function testWakeWord() {
+            // Simulate wake word detection
+            log('Test wake word: activation manuelle', 'warning');
+            alert('En mode test, vous pouvez:\n1. Cliquer sur le micro pour enregistrer\n2. Ou dites "bonjour" si wake word est actif');
+        }
+        
+        // ==================== Chat ====================
+        async function sendChatMessage() {
+            const input = document.getElementById('chatInput');
+            const message = input.value.trim();
+            
+            if (!message) return;
+            
+            addChatMessage('user', message);
+            input.value = '';
+            
+            await sendToChatbot(message);
+        }
+        
+        function handleChatKeyPress(event) {
+            if (event.key === 'Enter') {
+                sendChatMessage();
+            }
+        }
+        
+        async function sendToChatbot(message) {
+            log(`Envoi au chatbot: "${message}"`);
+            
+            try {
+                const response = await fetch(`${API_URL}/chat`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: message })
+                });
+                
+                const data = await response.json();
+                
+                if (data.response) {
+                    addChatMessage('bot', data.response);
+                    log(`Réponse: "${data.response.substring(0, 50)}..."`);
+                }
+            } catch (err) {
+                log('Erreur chatbot: ' + err.message, 'error');
+                addChatMessage('bot', 'Désolé, une erreur est survenue.');
+            }
+        }
+        
+        function addChatMessage(sender, text) {
+            const container = document.getElementById('chatMessages');
+            const div = document.createElement('div');
+            div.className = `message ${sender}`;
+            div.textContent = text;
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+        }
+        
+        function loadChatInterface() {
+            window.open(`${API_URL}/chat`, '_blank');
+        }
+        
+        // ==================== Robot Control ====================
+        function robotSay(text) {
+            // Use Web Speech API for TTS
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'fr-FR';
+            speechSynthesis.speak(utterance);
+            log(`Robot dit: "${text}"`);
+        }
+        
+        function showQRCode() {
+            window.open(`${API_URL}/chat/qrcode/html`, '_blank');
+        }
+        
+        function showTabletInterface() {
+            alert('Interface tablette: Redirige vers /chat pour l\'interface complète');
+            window.location.href = `${API_URL}/chat`;
+        }
+        
+        function navigateTo(path) {
+            window.location.href = path;
+        }
+        
+        function refreshPage() {
+            window.location.reload();
+        }
+        
+        // ==================== Initialize ====================
+        window.onload = function() {
+            log('Interface de test chargée');
+            log('URL API: ' + API_URL);
+            
+            // Check if face-api is available
+            if (typeof faceapi !== 'undefined') {
+                log('Face-API détecté');
+            } else {
+                log('Face-API non chargé - mode simple activé', 'warning');
+            }
+        };
+    </script>
+    
+    <!-- Load Face-API.js for face detection -->
+    <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.min.js"></script>
+</body>
+</html>
+

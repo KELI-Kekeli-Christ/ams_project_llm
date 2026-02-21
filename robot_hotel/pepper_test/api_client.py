@@ -58,7 +58,7 @@ def record_audio_manual():
                 except Exception:
                     pass
             response_start.raise_for_status()
-            print("Enregistrement demarre. Parlez... arret auto apres 3 sec de silence (ou cliquez STOP).")
+            print("Enregistrement demarre. Parlez... arret auto apres 2 sec de silence (ou cliquez STOP).")
         max_wait_time = 300
         check_interval = 0.5
         elapsed_time = 0
@@ -139,26 +139,52 @@ def transcribe_audio(audio_file):
         return None, None
 
 
-def chat_with_api(message, language=None):
-    """Envoie un message au chat. Retourne la réponse ou None."""
+def chat_voice(audio_file, session_id=None):
+    """Envoie un fichier audio à POST /chat/voice (transcription + chat). Retourne (response, session_id, transcript) ou (None, None, None)."""
+    try:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        robot_hotel_dir = os.path.dirname(script_dir)
+        if not os.path.isabs(audio_file):
+            audio_file = os.path.join(robot_hotel_dir, audio_file)
+        if not os.path.exists(audio_file):
+            print("Erreur: Fichier audio inexistant: {}".format(audio_file))
+            return None, None, None
+        with open(audio_file, "rb") as f:
+            response = requests.post(
+                "{}/chat/voice".format(API_CONFIG["base_url"]),
+                files={"file": f},
+                data={"session_id": session_id} if session_id else {},
+                timeout=API_CONFIG["timeout"]
+            )
+        response.raise_for_status()
+        result = response.json()
+        resp = result.get("response")
+        sid = result.get("session_id") or session_id
+        transcript = result.get("transcript") or ""
+        return (resp, sid, transcript)
+    except Exception as e:
+        safe_print("Erreur chat/voice: {}", repr(e))
+        return (None, None, None)
+
+
+def chat_with_api(message, language=None, session_id=None):
+    """Envoie un message au chat. Retourne (reponse, session_id) ou (None, None).
+    session_id permet la memoire conversationnelle (rappel du contexte)."""
     try:
         print("Envoi du message au service de chat...")
-        system_prompt = (
-            "You are a helpful assistant. Always reply in the same language as the user's message. "
-            "Detect the user's language from their input and respond using that language. "
-            "Keep responses concise and user-friendly."
-        )
         if isinstance(message, bytes):
             message = message.decode('utf-8', errors='ignore')
         try:
-            data_obj = {"system": system_prompt, "message": message}
-            if language:
-                data_obj["language"] = language
-            payload = json.dumps(data_obj, ensure_ascii=False).encode('utf-8')
-        except TypeError:
             data_obj = {"message": str(message)}
             if language:
                 data_obj["language"] = language
+            if session_id:
+                data_obj["session_id"] = session_id
+            payload = json.dumps(data_obj, ensure_ascii=False).encode('utf-8')
+        except TypeError:
+            data_obj = {"message": str(message)}
+            if session_id:
+                data_obj["session_id"] = session_id
             payload = json.dumps(data_obj, ensure_ascii=False).encode('utf-8')
         headers = {"Content-Type": "application/json; charset=utf-8"}
         response = requests.post(
@@ -169,13 +195,15 @@ def chat_with_api(message, language=None):
         )
         response.raise_for_status()
         result = response.json()
-        return result.get("response")
+        resp = result.get("response")
+        sid = result.get("session_id")
+        return (resp, sid)
     except Exception as e:
         try:
             print("Erreur chat: {}".format(repr(e)))
         except Exception:
             pass
-        return None
+        return (None, None)
 
 
 def make_reservation_with_api(audio_file):

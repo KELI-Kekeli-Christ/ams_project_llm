@@ -171,6 +171,18 @@ class RobotManager:
             traceback.print_exc()
             return False
 
+    def load_tablet_url(self, url):
+        """Charge une URL sur la tablette (ex: page « Appel en cours »)."""
+        if not self.tablet:
+            return False
+        try:
+            self.tablet.loadUrl(url)
+            time.sleep(0.5)
+            return True
+        except Exception as e:
+            print("Erreur loadUrl: {}".format(e))
+            return False
+
     def display_text(self, html_content):
         """Affiche du contenu HTML sur la tablette"""
         if not self.tablet:
@@ -292,7 +304,7 @@ class RobotManager:
                     pass
             return None, None, None
 
-    def record_audio_from_pepper(self, max_duration=30, silence_timeout=3.0, should_stop_callback=None):
+    def record_audio_from_pepper(self, max_duration=30, silence_timeout=2.0, should_stop_callback=None):
         """
         Enregistre l'audio depuis les micros de Pepper.
         Arrêt après silence_timeout secondes de silence ou quand should_stop_callback() retourne True.

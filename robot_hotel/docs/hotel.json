@@ -30,10 +30,9 @@
   "chambres": {
     "total": 85,
     "types": [
-      {"nom": "Classique", "superficie": "20m²", "prix": 180},
-      {"nom": "Supérieure", "superficie": "28m²", "prix": 250},
-      {"nom": "Deluxe", "superficie": "35m²", "prix": 320},
-      {"nom": "Suite Junior", "superficie": "45m²", "prix": 450}
+      {"nom": "suite", "superficie": "20m²", "prix": 180},
+      {"nom": "simple", "superficie": "28m²", "prix": 250},
+      {"nom": "double", "superficie": "35m²", "prix": 320}
     ]
   }
 }

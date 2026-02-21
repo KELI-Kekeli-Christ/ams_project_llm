@@ -2,7 +2,7 @@
 """
 Génération HTML pour la tablette Pepper
 """
-from config import API_CONFIG
+from config import API_CONFIG, SHOW_TABLET_CALL_BUTTON
 from utils.helpers import (
     force_utf8,
     escape_html,
@@ -19,9 +19,14 @@ def create_tablet_html(
     show_mic_button=False,
     mic_active=False,
     api_url=None,
+    show_call_button=None,
     robot_ip=None,
 ):
-    """Crée le HTML pour la tablette avec bouton micro."""
+    """Crée le HTML pour la tablette avec bouton micro et optionnellement bouton Appel.
+    show_call_button: True/False pour forcer, None = utiliser SHOW_TABLET_CALL_BUTTON (config/env).
+    """
+    if show_call_button is None:
+        show_call_button = SHOW_TABLET_CALL_BUTTON
     title = force_utf8(title)
     message = force_utf8(message)
     subtitle = force_utf8(subtitle)
@@ -46,7 +51,7 @@ def create_tablet_html(
         mic_border_color = "#cc0000" if mic_active else "#2E7D32"
         mic_size = "140px" if mic_active else "120px"
         button_text = "STOP" if mic_active else "MIC"
-        instruction_text = "Parlez... arret auto (3 sec silence) ou STOP" if mic_active else "Cliquez pour parler"
+        instruction_text = "Parlez... arret auto (2 sec silence) ou STOP" if mic_active else "Cliquez pour parler"
         mic_button_html = """
         <div style="margin-top: 40px; margin-bottom: 20px; text-align: center;">
             <button id="micButton" onclick="toggleRecording()" style="
@@ -91,7 +96,7 @@ def create_tablet_html(
                             btn.style.backgroundColor = '#ff4444';
                             btn.style.borderColor = '#cc0000';
                             btn.innerHTML = 'STOP';
-                            instruction.textContent = 'Parlez... arret auto apres 3 sec de silence';
+                            instruction.textContent = 'Parlez... arret auto apres 2 sec de silence';
                         }} else {{ instruction.textContent = 'Erreur: ' + response; }}
                     }});
                 }} else {{
@@ -114,6 +119,44 @@ def create_tablet_html(
             "true" if mic_active else "false",
             api_url
         )
+
+    # Bouton Appel : déclenche l'appel vocal temps réel continu (même logique que web)
+    call_button_html = ""
+    if show_call_button and api_url:
+        call_start_url = api_url.rstrip("/") + "/tablet/call/start"
+        call_button_html = """
+        <div style="margin-top: 25px; text-align: center;">
+            <button type="button" onclick="startCall()" style="
+                display: inline-block;
+                background-color: #2196F3;
+                border: 3px solid #1565C0;
+                border-radius: 25px;
+                padding: 15px 30px;
+                color: white;
+                font-size: 22px;
+                font-weight: bold;
+                cursor: pointer;
+            ">APPEL</button>
+            <p style="font-size: 14px; color: white; margin-top: 8px;">Appel continu (2 s silence = envoi)</p>
+        </div>
+        <script>
+            function startCall() {
+                var btn = document.querySelector('button[onclick=\"startCall()\"]');
+                if (btn) { btn.disabled = true; btn.textContent = 'Demande...'; }
+                var xhr = new XMLHttpRequest();
+                xhr.open('POST', '{}', true);
+                xhr.setRequestHeader('Content-Type', 'application/json');
+                xhr.onreadystatechange = function() {
+                    if (xhr.readyState === 4) {
+                        if (btn) { btn.disabled = false; btn.textContent = 'Appel demande'; }
+                    }
+                };
+                xhr.send();
+            }
+        </script>
+        """.format(call_start_url)
+    else:
+        call_button_html = ""
 
     # Bouton Chat : affiche le QR code au clic (redirige vers la page chat)
     chat_button_html = ""
@@ -196,7 +239,8 @@ def create_tablet_html(
         {}
         {}
         {}
+        {}
     </div>
 </body>
-</html>""".format(status_html, title_safe, message_safe, subtitle_block, mic_button_html, chat_button_html)
+</html>""".format(status_html, title_safe, message_safe, subtitle_block, mic_button_html, call_button_html, chat_button_html)
     return html

@@ -2,17 +2,23 @@
 """
 Configuration de l'environnement Choregraphe pour l'import du module qi
 
-Note: Le SDK NAOqi/Choregraphe utilise Python 2.7. Si vous exécutez avec Python 3,
-le module qi peut ne pas être disponible. Utilisez Python 2.7 avec Choregraphe
-pour une compatibilité complète.
+En Docker: qi est installe via pip, Choregraphe n'est pas requis.
+Sur host: utilise Choregraphe si CHOREGRAPHE_PATH existe.
 """
 import os
 import sys
-from config import CHOREGRAPHE_PATH
+
+CHOREGRAPHE_PATH = ""
+try:
+    from config import CHOREGRAPHE_PATH
+except ImportError:
+    pass
 
 
 def setup_choreographe_environment():
-    """Configure LD_LIBRARY_PATH et sys.path pour Choregraphe."""
+    """Configure LD_LIBRARY_PATH et sys.path pour Choregraphe (optionnel)."""
+    if not CHOREGRAPHE_PATH or not os.path.exists(CHOREGRAPHE_PATH):
+        return
     choregraph_lib_path = os.path.join(CHOREGRAPHE_PATH, "lib")
     if os.path.exists(choregraph_lib_path):
         current_ld_path = os.environ.get("LD_LIBRARY_PATH", "")

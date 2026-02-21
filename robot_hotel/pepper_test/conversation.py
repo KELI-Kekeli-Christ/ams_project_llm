@@ -15,6 +15,7 @@ from api_client import (
     record_audio_manual,
     transcribe_audio,
     chat_with_api,
+    chat_voice,
     make_reservation_with_api,
     is_reservation_request,
     is_qr_scan_request,
@@ -97,6 +98,101 @@ def _scan_qr_from_robot_camera(robot):
     if not qr_result:
         qr_result = scan_qr_code_with_api(camera_url=robot.camera_url)
     return qr_result
+
+
+def _tablet_call_status():
+    """Retourne { call_requested, call_stop } depuis le serveur."""
+    try:
+        r = requests.get("{}/tablet/call/status".format(API_CONFIG["base_url"]), timeout=2)
+        if r.ok:
+            return r.json()
+    except Exception:
+        pass
+    return {"call_requested": False, "call_stop": False}
+
+
+def run_robot_call_flow(robot, tts_lang, conversation_context):
+    """
+    Appel vocal temps réel continu déclenché par le bouton Appel sur la tablette.
+    Boucle : enregistrement (2 s silence = envoi) -> POST /chat/voice -> TTS robot.
+    Sortie quand l'utilisateur clique sur Raccrocher (call_stop).
+    """
+    base_url = API_CONFIG["base_url"].rstrip("/")
+    try:
+        requests.post("{}/tablet/call/cleared".format(base_url), timeout=3)
+    except Exception:
+        pass
+    if robot.tablet:
+        robot.load_tablet_url("{}/tablet/call".format(base_url))
+    if robot.tts:
+        safe_say(robot, "Appel vocal activé. Parlez, deux secondes de silence envoient votre message. Dites raccrocher ou appuyez sur le bouton pour terminer.", language=tts_lang)
+    session_id = conversation_context.get("chat_session_id")
+
+    def check_stop():
+        return _tablet_call_status().get("call_stop", False)
+
+    while True:
+        if check_stop():
+            print("Appel termine (Raccrocher).")
+            break
+        if USE_PEPPER_MIC and robot.audio_recorder:
+            audio_file = robot.record_audio_from_pepper(
+                max_duration=60,
+                silence_timeout=2.0,
+                should_stop_callback=check_stop
+            )
+        else:
+            try:
+                requests.post("{}/record/start".format(base_url), timeout=5)
+            except Exception:
+                pass
+            audio_file = None
+            for _ in range(240):
+                if check_stop():
+                    break
+                time.sleep(0.5)
+                try:
+                    r = requests.get("{}/record/status".format(base_url), timeout=2)
+                    if r.ok:
+                        data = r.json()
+                        if not data.get("recording", True):
+                            audio_file = data.get("file")
+                            break
+                except Exception:
+                    pass
+            if not audio_file:
+                try:
+                    requests.post("{}/record/stop".format(base_url), timeout=5)
+                    r = requests.get("{}/record/status".format(base_url), timeout=2)
+                    if r.ok:
+                        audio_file = r.json().get("file")
+                except Exception:
+                    pass
+        if not audio_file:
+            continue
+        response, new_sid, transcript = chat_voice(audio_file, session_id=session_id)
+        if new_sid:
+            session_id = new_sid
+            conversation_context["chat_session_id"] = session_id
+        if response and robot.tts:
+            safe_say(robot, response, language=tts_lang)
+        if check_stop():
+            break
+
+    try:
+        requests.post("{}/tablet/call/reset".format(base_url), timeout=3)
+    except Exception:
+        pass
+    if robot.tablet:
+        robot.display_text(create_tablet_html(
+            title="Pepper",
+            message="Appel termine. Comment puis-je vous aider ?",
+            subtitle="",
+            status="En attente",
+            show_mic_button=True,
+            mic_active=False,
+            robot_ip=robot.ip
+        ))
 
 
 def run_conversation():
@@ -188,7 +284,8 @@ def run_conversation():
         conversation_context = {
             "in_reservation_mode": False,
             "collected_info": {},
-            "missing_fields": []
+            "missing_fields": [],
+            "chat_session_id": None,
         }
         last_recognized_name = recognized_name
         conversation_count = 0
@@ -199,6 +296,16 @@ def run_conversation():
             print("\n" + "=" * 60)
             print("Tour de conversation #{}".format(conversation_count))
             print("=" * 60)
+
+            # Appel vocal temps réel (bouton Appel sur la tablette)
+            try:
+                call_status = _tablet_call_status()
+                if call_status.get("call_requested"):
+                    print("Demande d'appel vocal detectee (bouton Appel).")
+                    run_robot_call_flow(robot, tts_lang, conversation_context)
+                    continue
+            except Exception as e:
+                print("Erreur check appel tablette: {}".format(e))
 
             # QR détecté en arrière-plan
             try:
@@ -545,7 +652,13 @@ def run_conversation():
                         status="🟡 Génération...",
                         show_mic_button=False
                     ))
-                chat_response = chat_with_api(transcribed_text, language=detected_lang)
+                chat_response, new_session_id = chat_with_api(
+                    transcribed_text,
+                    language=detected_lang,
+                    session_id=conversation_context.get("chat_session_id")
+                )
+                if new_session_id:
+                    conversation_context["chat_session_id"] = new_session_id
                 if isinstance(chat_response, bytes):
                     chat_response = chat_response.decode('utf-8', 'ignore')
 

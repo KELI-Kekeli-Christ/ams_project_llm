@@ -1,0 +1,1905 @@
+from flask import Flask, request, jsonify, render_template
+from flasgger import Swagger
+from services.chat import chat
+from services.location import get_heure_date
+from services.rag import init_rag
+from services.whisper import charge_model_whisper, transcribe_audio
+from services.record import record_until_silence, start_manual_recording, stop_manual_recording, get_recording_status
+from services.make_reservation import make_reservation
+from services.email import (
+    load_email_config,
+    save_email_config,
+    get_manager_email,
+    update_manager_email
+)
+from services.face_detection import (
+    init_face_detection,
+    detect_faces_in_image,
+    register_person_from_image,
+    get_registered_persons,
+    delete_person,
+    start_video_stream,
+    stop_video_stream,
+    get_latest_detections
+)
+from flask_cors import CORS 
+from werkzeug.datastructures import FileStorage
+import os
+import requests
+import cv2
+import numpy as np
+import threading
+import time as time_module
+
+app = Flask(__name__)
+CORS(app)  # Enable CORS for all routes
+
+# Configuration Swagger
+swagger_config = {
+    "headers": [],
+    "specs": [
+        {
+            "endpoint": "apispec",
+            "route": "/apispec.json",
+            "rule_filter": lambda rule: True,
+            "model_filter": lambda tag: True,
+        }
+    ],
+    "static_url_path": "/flasgger_static",
+    "swagger_ui": True,
+    "specs_route": "/api-docs"
+}
+
+swagger_template = {
+    "swagger": "2.0",
+    "info": {
+        "title": "Pepper-Llama Hotel API",
+        "description": "API pour le robot hôtel Pepper avec intégration Llama 3, Whisper, et gestion de réservations",
+        "version": "1.0.0",
+        "contact": {
+            "name": "API Support"
+        }
+    },
+    "basePath": "/",
+    "schemes": ["http", "https"],
+    "tags": [
+        {
+            "name": "Chat",
+            "description": "Endpoints pour la conversation avec le modèle Llama 3"
+        },
+        {
+            "name": "Audio",
+            "description": "Endpoints pour la transcription et l'enregistrement audio"
+        },
+        {
+            "name": "Reservation",
+            "description": "Endpoints pour la gestion des réservations"
+        },
+        {
+            "name": "Face Detection",
+            "description": "Endpoints pour la détection et reconnaissance faciale"
+        },
+        {
+            "name": "System",
+            "description": "Endpoints système"
+        },
+        {
+            "name": "QR Code",
+            "description": "Endpoints pour le scan et vérification de QR codes"
+        },
+        {
+            "name": "QR Code",
+            "description": "Endpoints pour le scan et vérification de QR codes"
+        }
+    ]
+}
+
+swagger = Swagger(app, config=swagger_config, template=swagger_template)
+
+init_rag()
+model=charge_model_whisper() #charger le model whisper au demarrage
+# init_face_detection() # Initialiser la détection faciale au démarrage - COMMENTE POUR TEST
+
+@app.route("/chat", methods=["POST"])
+def handle_chat():
+    """
+    Envoie un message au chatbot et reçoit une réponse du modèle Llama 3
+    ---
+    tags:
+      - Chat
+    consumes:
+      - application/json
+    produces:
+      - application/json
+    parameters:
+      - in: body
+        name: body
+        description: Message de l'utilisateur
+        required: true
+        schema:
+          type: object
+          required:
+            - message
+          properties:
+            message:
+              type: string
+              description: Le message de l'utilisateur
+              example: "Quels sont les services de l'hôtel ?"
+    responses:
+      200:
+        description: Réponse du chatbot avec contexte RAG
+        schema:
+          type: object
+          properties:
+            response:
+              type: string
+              description: La réponse du modèle Llama 3
+            context_used:
+              type: string
+              description: Le contexte RAG utilisé pour la réponse
+        example:
+          response: "L'hôtel propose plusieurs services..."
+          context_used: "Informations sur les services..."
+      400:
+        description: Erreur - Aucun message fourni
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+        example:
+          error: "Aucun message fourni."
+      500:
+        description: Erreur serveur
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+    """
+    data = request.get_json()
+    return chat(user_message=data.get("message", ""), session_id=data.get("session_id"))
+
+
+@app.route("/chat", methods=["GET"])
+def chat_interface():
+    """
+    Interface web pour discuter avec Pepper
+    ---
+    tags:
+      - Chat
+    produces:
+      - text/html
+    """
+    return render_template('chat.html')
+
+
+@app.route("/location", methods=["GET"])
+def handle_location():
+    """
+    Retourne l'heure et la date actuelles
+    ---
+    tags:
+      - System
+    produces:
+      - text/plain
+    responses:
+      200:
+        description: Heure et date actuelles
+        schema:
+          type: string
+        example: "Il est 14:30 le 23 décembre 2025."
+    """
+    return get_heure_date()
+
+
+@app.route("/transcribe", methods=["POST"])
+def handle_transcribe():
+    """
+    Transcrit un fichier audio en texte en utilisant Whisper
+    La langue est détectée automatiquement
+    ---
+    tags:
+      - Audio
+    consumes:
+      - multipart/form-data
+    produces:
+      - application/json
+    parameters:
+      - in: formData
+        name: file
+        type: file
+        required: true
+        description: Fichier audio à transcrire (format MP3, WAV, etc.)
+    responses:
+      200:
+        description: Transcription réussie
+        schema:
+          type: object
+          properties:
+            text:
+              type: string
+              description: Le texte transcrit
+            language:
+              type: string
+              description: La langue détectée (code ISO 639-1)
+        example:
+          text: "Bonjour, je voudrais réserver une chambre"
+          language: "fr"
+      400:
+        description: Erreur - Fichier non fourni ou invalide
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+      500:
+        description: Erreur serveur
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+    """
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+    result = transcribe_audio(model, file=request.files["file"])
+    return jsonify(result)
+
+
+@app.route("/record", methods=["GET"])
+def handle_record():
+    """
+    Enregistre l'audio depuis le microphone jusqu'à détection d'un silence
+    ---
+    tags:
+      - Audio
+    produces:
+      - application/json
+    responses:
+      200:
+        description: Enregistrement terminé avec succès
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+              description: Message de confirmation
+            file:
+              type: string
+              description: Chemin vers le fichier audio enregistré
+        example:
+          message: "Enregistrement terminé"
+          file: "recordings/20251223_143000_voice.wav"
+      500:
+        description: Erreur lors de l'enregistrement
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+    """
+    return record_until_silence()
+
+
+@app.route("/record/start", methods=["POST"])
+def handle_record_start():
+    """
+    Démarre un enregistrement audio manuel
+    ---
+    tags:
+      - Audio
+    produces:
+      - application/json
+    responses:
+      200:
+        description: Enregistrement démarré avec succès
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+            status:
+              type: string
+      400:
+        description: Un enregistrement est déjà en cours
+    """
+    return start_manual_recording()
+
+
+@app.route("/record/stop", methods=["POST"])
+def handle_record_stop():
+    """
+    Arrête l'enregistrement audio manuel en cours et sauvegarde le fichier
+    ---
+    tags:
+      - Audio
+    produces:
+      - application/json
+    responses:
+      200:
+        description: Enregistrement terminé avec succès
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+            file:
+              type: string
+      400:
+        description: Aucun enregistrement en cours
+    """
+    return stop_manual_recording()
+
+
+@app.route("/record/status", methods=["GET"])
+def handle_record_status():
+    """
+    Retourne l'état actuel de l'enregistrement
+    ---
+    tags:
+      - Audio
+    produces:
+      - application/json
+    responses:
+      200:
+        description: État de l'enregistrement
+        schema:
+          type: object
+          properties:
+            recording:
+              type: boolean
+            file:
+              type: string
+    """
+    return get_recording_status()
+
+
+@app.route("/make_reservation", methods=["POST"])
+def handle_make_reservation():
+    """
+    Crée une réservation à partir d'un fichier audio
+    Le fichier audio est transcrit, puis les informations sont extraites et envoyées à l'API de réservation
+    ---
+    tags:
+      - Reservation
+    consumes:
+      - multipart/form-data
+    produces:
+      - application/json
+    parameters:
+      - in: formData
+        name: file
+        type: file
+        required: true
+        description: Fichier audio contenant la demande de réservation
+    responses:
+      200:
+        description: Réservation créée avec succès
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+              description: Statut de l'opération (success ou error)
+            reservation_data:
+              type: object
+              description: Données de réservation extraites
+              properties:
+                id_client:
+                  type: string
+                nom:
+                  type: string
+                prenom:
+                  type: string
+                type_chambre:
+                  type: string
+                  enum: [simple, double, suite]
+                date_arrivee:
+                  type: string
+                  format: date
+                date_depart:
+                  type: string
+                  format: date
+            api_response:
+              type: object
+              description: Réponse de l'API de réservation
+        example:
+          status: "success"
+          reservation_data:
+            id_client: "C-001"
+            nom: "Dupont"
+            prenom: "Jean"
+            type_chambre: "double"
+            date_arrivee: "2025-12-25"
+            date_depart: "2025-12-30"
+          api_response:
+            reservation_id: "R-12345"
+      400:
+        description: Erreur - Fichier non fourni ou transcript vide
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+            status:
+              type: string
+        example:
+          error: "Le transcript est vide"
+          status: "error"
+      500:
+        description: Erreur serveur
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+            status:
+              type: string
+    """
+    try:
+        # Vérifier si un fichier est fourni
+        if "file" not in request.files:
+            return jsonify({"error": "No file provided", "status": "error"}), 400
+        
+        uploaded_file = request.files["file"]
+        if uploaded_file.filename == "":
+            return jsonify({"error": "No file selected", "status": "error"}), 400
+        
+        print(f"📁 Fichier reçu : {uploaded_file.filename}")
+        
+        # Étape 1 : Transcrire l'audio directement depuis le fichier uploadé
+        print("📝 Transcription de l'audio...")
+        transcribe_result = transcribe_audio(model, uploaded_file)
+        
+        transcript = transcribe_result.get("text", "")
+        language = transcribe_result.get("language", "")
+        
+        print(f"✅ Transcription : {transcript}")
+        print(f"🌐 Langue détectée : {language}")
+        
+        if not transcript or not transcript.strip():
+            return jsonify({
+                "error": "Le transcript est vide. Le fichier audio ne contient peut-être pas de parole.",
+                "status": "error"
+            }), 400
+        
+        # Étape 2 : Créer la réservation
+        print("📅 Création de la réservation...")
+        result = make_reservation(transcript)
+        
+        # Ajouter les informations de transcription dans la réponse
+        result["transcript"] = transcript
+        result["language"] = language
+        result["audio_filename"] = uploaded_file.filename
+        
+        return jsonify(result), 200
+    
+    except Exception as e:
+        print(f"❌ Erreur : {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            "error": f"Erreur serveur : {str(e)}",
+            "status": "error"
+        }), 500
+
+
+@app.route("/validate_reservation_form", methods=["POST"])
+def validate_reservation_form():
+    """
+    Valide les informations de réservation envoyées depuis la tablette
+    ---
+    tags:
+      - Reservation
+    consumes:
+      - application/json
+    produces:
+      - application/json
+    parameters:
+      - in: body
+        name: reservation_data
+        description: Données de réservation à valider
+        schema:
+          type: object
+          properties:
+            session_id:
+              type: string
+              description: ID de session pour lier avec l'extraction audio
+            nom:
+              type: string
+            prenom:
+              type: string
+            type_chambre:
+              type: string
+              enum: [simple, double, suite]
+            date_arrivee:
+              type: string
+              format: date
+            date_depart:
+              type: string
+              format: date
+            email:
+              type: string
+              description: Email du client pour envoi par email (optionnel)
+            send_by_email:
+              type: boolean
+              description: Si true, envoie les données par email au lieu de les valider seulement
+            corrections:
+              type: object
+              description: Corrections apportées par l'utilisateur
+    responses:
+      200:
+        description: Données validées et prêtes pour sauvegarde
+      400:
+        description: Données invalides
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data provided", "status": "error"}), 400
+
+        session_id = data.get('session_id')
+        if not session_id:
+            return jsonify({"error": "Session ID requis", "status": "error"}), 400
+
+# Récupérer les données extraites de l'audio depuis SQLite
+        from services.make_reservation import get_extracted_reservation
+        
+        audio_data = get_extracted_reservation(session_id)
+        if not audio_data:
+            return jsonify({"error": "Aucune donnée audio trouvée pour cette session", "status": "error"}), 400
+
+        # Fusionner les données audio avec les corrections de la tablette
+        validated_data = audio_data.copy()
+        corrections = data.get('corrections', {})
+
+        # Appliquer les corrections
+        for field, value in corrections.items():
+            if value and value != "inconnu":  # Ne pas écraser avec des valeurs vides
+                validated_data[field] = value
+
+        # Ajouter l'email si fourni
+        client_email = data.get('email', '').strip()
+        if client_email:
+            validated_data['email'] = client_email
+
+        # Validation des champs obligatoires
+        required_fields = ['nom', 'prenom', 'type_chambre', 'date_arrivee', 'date_depart']
+        missing_fields = []
+
+        for field in required_fields:
+            value = validated_data.get(field)
+            if not value or value == "inconnu":
+                missing_fields.append(field)
+
+        if missing_fields:
+            return jsonify({
+                "error": f"Champs obligatoires manquants: {', '.join(missing_fields)}",
+                "status": "error",
+                "missing_fields": missing_fields
+            }), 400
+
+        # Validation du type de chambre
+        valid_room_types = ['simple', 'double', 'suite']
+        if validated_data.get('type_chambre') not in valid_room_types:
+            return jsonify({
+                "error": f"Type de chambre invalide. Valeurs acceptées: {', '.join(valid_room_types)}",
+                "status": "error"
+            }), 400
+
+        # Validation des dates (format YYYY-MM-DD)
+        import re
+        date_pattern = re.compile(r'^\d{4}-\d{2}-\d{2}$')
+        for date_field in ['date_arrivee', 'date_depart']:
+            date_value = validated_data.get(date_field)
+            if not date_pattern.match(date_value):
+                return jsonify({
+                    "error": f"Format de date invalide pour {date_field}. Utilisez YYYY-MM-DD",
+                    "status": "error"
+                }), 400
+
+        # Validation logique des dates
+        from datetime import datetime
+        try:
+            date_arrivee = datetime.strptime(validated_data['date_arrivee'], '%Y-%m-%d')
+            date_depart = datetime.strptime(validated_data['date_depart'], '%Y-%m-%d')
+
+            if date_depart <= date_arrivee:
+                return jsonify({
+                    "error": "La date de départ doit être postérieure à la date d'arrivée",
+                    "status": "error"
+                }), 400
+
+        except ValueError as e:
+            return jsonify({
+                "error": f"Erreur dans le format des dates: {str(e)}",
+                "status": "error"
+            }), 400
+
+        # Vérifier si l'utilisateur veut envoyer par email
+        send_by_email = data.get('send_by_email', False)
+        
+        if send_by_email:
+            # Validation de l'email
+            if not client_email:
+                return jsonify({
+                    "error": "Email requis pour l'envoi par email",
+                    "status": "error"
+                }), 400
+            
+            # Validation basique du format email
+            import re
+            email_pattern = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
+            if not email_pattern.match(client_email):
+                return jsonify({
+                    "error": "Format d'email invalide",
+                    "status": "error"
+                }), 400
+            
+            # Envoyer par email
+            from services.email import send_validation_email
+            
+            email_result = send_validation_email(
+                client_email=client_email,
+                client_name=validated_data.get('nom', ''),
+                client_prenom=validated_data.get('prenom', ''),
+                reservation_data=validated_data,
+                session_id=session_id
+            )
+            
+            if email_result.get('status') == 'success':
+                return jsonify({
+                    "status": "email_sent",
+                    "message": "Données de réservation envoyées par email avec succès",
+                    "email_result": email_result,
+                    "session_id": session_id
+                }), 200
+            else:
+                return jsonify({
+                    "error": f"Erreur lors de l'envoi par email: {email_result.get('message')}",
+                    "status": "error",
+                    "email_result": email_result
+                }), 500
+        else:
+            # Sauvegarder les données validées dans SQLite pour la session
+            from services.make_reservation import store_validated_reservation
+            
+            validated_data['validated_at'] = datetime.now().isoformat()
+            validated_data['status'] = 'validated'
+            
+            success = store_validated_reservation(session_id, validated_data)
+            if not success:
+                return jsonify({"error": "Erreur lors de la sauvegarde des données validées", "status": "error"}), 500
+
+            return jsonify({
+                "status": "success",
+                "message": "Données de réservation validées avec succès",
+                "validated_data": validated_data,
+                "session_id": session_id
+            }), 200
+
+    except Exception as e:
+        print(f"❌ Erreur validation formulaire: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            "error": f"Erreur serveur: {str(e)}",
+            "status": "error"
+        }), 500
+
+
+@app.route("/confirm_reservation", methods=["POST"])
+def confirm_reservation():
+    """
+    Confirme et sauvegarde la réservation validée dans la base de données
+    ---
+    tags:
+      - Reservation
+    consumes:
+      - application/json
+    produces:
+      - application/json
+    parameters:
+      - in: body
+        name: confirmation_data
+        schema:
+          type: object
+          properties:
+            session_id:
+              type: string
+              description: ID de session de la réservation validée
+    responses:
+      200:
+        description: Réservation créée avec succès
+      400:
+        description: Données manquantes ou invalides
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data provided", "status": "error"}), 400
+
+        session_id = data.get('session_id')
+        if not session_id:
+            return jsonify({"error": "Session ID requis", "status": "error"}), 400
+
+# Récupérer les données validées depuis SQLite
+        from services.make_reservation import get_validated_reservation, delete_temp_reservation
+        
+        validated_data = get_validated_reservation(session_id)
+        if not validated_data:
+            return jsonify({"error": "Aucune donnée validée trouvée pour cette session", "status": "error"}), 400
+
+        # Créer le client et la réservation
+        from services.make_reservation import create_client_api, create_reservation_api
+
+        # Étape 1: Créer le client
+        client_result = create_client_api(
+            nom=validated_data["nom"],
+            prenom=validated_data["prenom"]
+        )
+
+        if client_result.get("status") == "error":
+            return jsonify(client_result), 400
+
+        id_client = client_result.get("id_client")
+
+        # Étape 2: Créer la réservation
+        reservation_result = create_reservation_api(id_client, validated_data)
+
+        if reservation_result.get("status") == "error":
+            return jsonify(reservation_result), 400
+
+        # Nettoyer SQLite
+        delete_temp_reservation(session_id)
+
+        # Envoyer l'email si nécessaire
+        try:
+            from services.email import send_reservation_email
+            reservation_id = reservation_result.get("id_reservation", "N/A")
+            qr_code_path = reservation_result.get("qr_code_path")
+
+            email_result = send_reservation_email(
+                reservation_id=reservation_id,
+                client_name=validated_data.get("nom", ""),
+                client_prenom=validated_data.get("prenom", ""),
+                type_chambre=validated_data.get("type_chambre", ""),
+                date_arrivee=validated_data.get("date_arrivee", ""),
+                date_depart=validated_data.get("date_depart", ""),
+                qr_code_path=qr_code_path
+            )
+
+            if email_result.get("status") == "success":
+                print(f"📧 Email envoyé au gestionnaire")
+            else:
+                print(f"⚠️ Email non envoyé: {email_result.get('message')}")
+        except Exception as e:
+            print(f"⚠️ Erreur lors de l'envoi de l'email: {e}")
+
+        return jsonify({
+            "status": "success",
+            "client": client_result,
+            "reservation": reservation_result,
+            "message": f"Réservation confirmée pour {validated_data.get('nom')} {validated_data.get('prenom')}"
+        }), 200
+
+    except Exception as e:
+        print(f"❌ Erreur confirmation réservation: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            "error": f"Erreur serveur: {str(e)}",
+            "status": "error"
+        }), 500
+
+
+@app.route("/validate")
+def validate_reservation_page():
+    """
+    Page de validation des réservations depuis le chatbot
+    ---
+    tags:
+      - Reservation
+    parameters:
+      - in: query
+        name: session_id
+        type: string
+        required: true
+        description: ID de session de réservation
+      - in: query
+        name: action
+        type: string
+        description: Action à effectuer (validate_reservation)
+    responses:
+      200:
+        description: Page de validation affichée
+      400:
+        description: Session invalide
+    """
+    session_id = request.args.get('session_id')
+    action = request.args.get('action', 'validate_reservation')
+
+    if not session_id:
+        return "Session ID manquant", 400
+
+    # Pour l'instant, on affiche toujours la page de validation
+    # Plus tard on pourra différencier les actions
+    return render_template('validation.html')
+
+
+@app.route("/get_reservation_session")
+def get_reservation_session():
+    """
+    Récupère les données de session de réservation
+    ---
+    tags:
+      - Reservation
+    parameters:
+      - in: query
+        name: session_id
+        type: string
+        required: true
+    responses:
+      200:
+        description: Données de session récupérées
+      400:
+        description: Session invalide
+    """
+    session_id = request.args.get('session_id')
+    if not session_id:
+        return jsonify({"error": "Session ID requis", "status": "error"}), 400
+
+    # Importer les fonctions depuis chat.py
+    from services.chat import get_reservation_session
+
+    user_data, current_step = get_reservation_session(session_id)
+
+    if not user_data:
+        return jsonify({"error": "Session non trouvée ou expirée", "status": "error"}), 404
+
+    # Ajouter des informations supplémentaires
+    user_data['session_id'] = session_id
+    user_data['current_step'] = current_step
+    user_data['created_at'] = user_data.get('created_at', 'N/A')
+
+    return jsonify({
+        "status": "success",
+        "reservation_data": user_data,
+        "current_step": current_step
+    }), 200
+
+
+@app.route("/reservation_success")
+def reservation_success():
+    """
+    Page de succès après confirmation de réservation
+    ---
+    tags:
+      - Reservation
+    responses:
+      200:
+        description: Page de succès affichée
+    """
+    return """
+    <!DOCTYPE html>
+    <html lang="fr">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Réservation Confirmée - Hôtel</title>
+        <style>
+            body {
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                min-height: 100vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                margin: 0;
+                color: white;
+                text-align: center;
+            }
+            .container {
+                background: rgba(255, 255, 255, 0.1);
+                backdrop-filter: blur(10px);
+                border-radius: 15px;
+                padding: 40px;
+                max-width: 500px;
+                box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            }
+            h1 { font-size: 2.5em; margin-bottom: 20px; }
+            p { font-size: 1.2em; margin: 15px 0; }
+            .btn {
+                display: inline-block;
+                padding: 15px 30px;
+                background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+                color: white;
+                text-decoration: none;
+                border-radius: 8px;
+                margin-top: 20px;
+                font-weight: bold;
+                transition: transform 0.3s ease;
+            }
+            .btn:hover { transform: translateY(-2px); }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>🎉 Réservation Confirmée !</h1>
+            <p>Votre réservation a été enregistrée avec succès.</p>
+            <p>Vous allez recevoir un email de confirmation dans quelques instants.</p>
+            <a href="/" class="btn">Retour à l'accueil</a>
+        </div>
+    </body>
+    </html>
+    """
+
+
+@app.route("/chat")
+def chat_page():
+    """
+    Page du chatbot avec possibilité de modification de réservation
+    ---
+    tags:
+      - Chat
+    parameters:
+      - in: query
+        name: session_id
+        type: string
+        description: ID de session pour continuer une conversation
+      - in: query
+        name: modify
+        type: boolean
+        description: Indique si on veut modifier une réservation existante
+    responses:
+      200:
+        description: Page de chat affichée
+    """
+    session_id = request.args.get('session_id')
+    modify = request.args.get('modify', 'false').lower() == 'true'
+
+    # On peut passer des paramètres au template si nécessaire
+    return render_template('chat.html', session_id=session_id, modify=modify)
+
+
+@app.route("/face/detect", methods=["POST"])
+def handle_face_detect():
+    """
+    Détecte et identifie les visages dans une image
+    ---
+    tags:
+      - Face Detection
+    consumes:
+      - multipart/form-data
+    produces:
+      - application/json
+    parameters:
+      - in: formData
+        name: file
+        type: file
+        required: true
+        description: Image à analyser (format JPG, PNG, etc.)
+    responses:
+      200:
+        description: Détection réussie
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            detections:
+              type: array
+              description: Liste des détections
+            total_detected:
+              type: integer
+            recognized_persons:
+              type: array
+            total_recognized:
+              type: integer
+      400:
+        description: Erreur - Fichier non fourni ou invalide
+      500:
+        description: Erreur serveur
+    """
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+    return detect_faces_in_image(request.files["file"])
+
+@app.route("/face/register", methods=["POST"])
+def handle_face_register():
+    """
+    Enregistre une nouvelle personne dans la base de données de reconnaissance faciale
+    ---
+    tags:
+      - Face Detection
+    consumes:
+      - multipart/form-data
+    produces:
+      - application/json
+    parameters:
+      - in: formData
+        name: file
+        type: file
+        required: true
+        description: Image contenant un seul visage à enregistrer
+      - in: formData
+        name: name
+        type: string
+        required: true
+        description: Nom de la personne à enregistrer
+    responses:
+      200:
+        description: Personne enregistrée avec succès
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            message:
+              type: string
+            total_registered:
+              type: integer
+      400:
+        description: Erreur - Fichier non fourni, aucun visage trouvé, ou nom déjà existant
+      500:
+        description: Erreur serveur
+    """
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+    if "name" not in request.form:
+        return jsonify({"error": "Name parameter is required"}), 400
+    return register_person_from_image(request.files["file"], request.form["name"])
+
+@app.route("/face/persons", methods=["GET"])
+def handle_get_persons():
+    """
+    Récupère la liste de toutes les personnes enregistrées
+    ---
+    tags:
+      - Face Detection
+    produces:
+      - application/json
+    responses:
+      200:
+        description: Liste des personnes enregistrées
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            persons:
+              type: array
+              items:
+                type: string
+            total:
+              type: integer
+    """
+    return get_registered_persons()
+
+@app.route("/face/persons/<name>", methods=["DELETE"])
+def handle_delete_person(name):
+    """
+    Supprime une personne de la base de données de reconnaissance faciale
+    ---
+    tags:
+      - Face Detection
+    produces:
+      - application/json
+    parameters:
+      - in: path
+        name: name
+        type: string
+        required: true
+        description: Nom de la personne à supprimer
+    responses:
+      200:
+        description: Personne supprimée avec succès
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            message:
+              type: string
+            total_registered:
+              type: integer
+      404:
+        description: Personne non trouvée dans la base de données
+      500:
+        description: Erreur serveur
+    """
+    return delete_person(name)
+
+@app.route("/face/stream/start", methods=["POST"])
+def handle_start_stream():
+    """
+    Démarre le streaming vidéo en temps réel pour la détection faciale
+    ---
+    tags:
+      - Face Detection
+    consumes:
+      - application/json
+    produces:
+      - application/json
+    parameters:
+      - in: body
+        name: body
+        description: Paramètres du stream vidéo
+        schema:
+          type: object
+          properties:
+            camera_index:
+              type: integer
+              description: Index de la caméra (par défaut 0)
+              example: 0
+            video_url:
+              type: string
+              description: URL du flux vidéo (optionnel, pour Pepper par exemple)
+              example: "http://pepper.local:8080/video"
+    responses:
+      200:
+        description: Stream vidéo démarré avec succès
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            message:
+              type: string
+      400:
+        description: Erreur - Stream déjà en cours
+      500:
+        description: Erreur serveur
+    """
+    data = request.get_json() or {}
+    camera_index = data.get("camera_index", 0)
+    video_url = data.get("video_url", None)
+    return start_video_stream(camera_index, video_url)
+
+@app.route("/face/stream/stop", methods=["POST"])
+def handle_stop_stream():
+    """
+    Arrête le streaming vidéo en temps réel
+    ---
+    tags:
+      - Face Detection
+    produces:
+      - application/json
+    responses:
+      200:
+        description: Stream vidéo arrêté avec succès
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            message:
+              type: string
+      400:
+        description: Erreur - Aucun stream en cours
+    """
+    return stop_video_stream()
+
+@app.route("/face/stream/detections", methods=["GET"])
+def handle_get_detections():
+    """
+    Récupère les dernières détections du flux vidéo en temps réel
+    ---
+    tags:
+      - Face Detection
+    produces:
+      - application/json
+    responses:
+      200:
+        description: Dernières détections
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            streaming:
+              type: boolean
+            detections:
+              type: array
+              description: Liste des détections actuelles
+            recognized_persons:
+              type: array
+              description: Liste des personnes reconnues
+            total_detected:
+              type: integer
+            total_recognized:
+              type: integer
+            timestamp:
+              type: number
+      400:
+        description: Erreur - Aucun stream en cours
+    """
+    return get_latest_detections()
+
+def detect_qr_in_image(img):
+    """
+    Détecte un QR code dans une image
+    
+    Args:
+        img: Image numpy array (BGR format from cv2)
+    
+    Returns:
+        tuple: (success, qr_id) ou (False, None)
+    """
+    detector = cv2.QRCodeDetector()
+    retval, decoded_info, points, straight_qrcode = detector.detectAndDecodeMulti(img)
+    
+    if retval and decoded_info and len(decoded_info) > 0 and decoded_info[0]:
+        qr_id = decoded_info[0].strip()
+        if qr_id:
+            return True, qr_id
+    
+    return False, None
+
+def verify_qr_with_api(qr_id):
+    """
+    Vérifie un QR code via l'API FastAPI
+    
+    Args:
+        qr_id: ID du QR code à vérifier
+    
+    Returns:
+        dict: Résultat de la vérification
+    """
+    try:
+        reservation_api_url = os.getenv("RESERVATION_API_URL", "http://localhost:8000")
+        verify_url = f"{reservation_api_url}/verify_qr"
+        
+        response = requests.post(
+            verify_url,
+            json={"qr_id": qr_id},
+            timeout=10
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            return {
+                "success": True,
+                "qr_id": qr_id,
+                "reservation": result.get("reservation", {}),
+                "client": result.get("client", {})
+            }
+        elif response.status_code == 404:
+            return {
+                "success": False,
+                "error": "QR code invalide ou réservation non trouvée",
+                "qr_id": qr_id
+            }
+        else:
+            error_detail = response.json().get("detail", "Erreur inconnue")
+            return {
+                "success": False,
+                "error": f"Erreur lors de la vérification: {error_detail}",
+                "qr_id": qr_id
+            }
+            
+    except requests.exceptions.ConnectionError:
+        return {
+            "success": False,
+            "error": "Impossible de se connecter à l'API de réservation. Vérifiez que le serveur FastAPI est démarré.",
+            "qr_id": qr_id
+        }
+    except requests.exceptions.Timeout:
+        return {
+            "success": False,
+            "error": "Timeout lors de la vérification du QR code",
+            "qr_id": qr_id
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Erreur lors de la vérification: {str(e)}",
+            "qr_id": qr_id
+        }
+
+@app.route("/scan_qr", methods=["POST"])
+def handle_scan_qr():
+    """
+    Scanne un QR code depuis une image et retourne les informations de réservation
+    ---
+    tags:
+      - QR Code
+    consumes:
+      - multipart/form-data
+    produces:
+      - application/json
+    parameters:
+      - in: formData
+        name: file
+        type: file
+        required: true
+        description: Image contenant le QR code à scanner
+    responses:
+      200:
+        description: QR code scanné et vérifié avec succès
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            qr_id:
+              type: string
+              description: ID du QR code détecté
+            reservation:
+              type: object
+              description: Informations de la réservation
+            client:
+              type: object
+              description: Informations du client
+      400:
+        description: Erreur - Fichier non fourni, image invalide ou QR code non détecté
+      404:
+        description: QR code invalide ou réservation non trouvée
+      500:
+        description: Erreur serveur
+    """
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided", "success": False}), 400
+    
+    file = request.files["file"]
+    if file.filename == "":
+        return jsonify({"error": "No file selected", "success": False}), 400
+    
+    try:
+        # Lire l'image
+        file_bytes = file.read()
+        nparr = np.frombuffer(file_bytes, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+        if img is None:
+            return jsonify({"error": "Invalid image file", "success": False}), 400
+        
+        # Détecter le QR code
+        success, qr_id = detect_qr_in_image(img)
+        
+        if not success:
+            return jsonify({"error": "QR code not detected in image", "success": False}), 400
+        
+        # Vérifier le QR code via l'API
+        result = verify_qr_with_api(qr_id)
+        
+        if result["success"]:
+            return jsonify(result)
+        else:
+            status_code = 404 if "invalide" in result.get("error", "").lower() else 500
+            return jsonify(result), status_code
+            
+    except Exception as e:
+        return jsonify({"error": f"Erreur lors du traitement de l'image: {str(e)}", "success": False}), 500
+
+# Variables globales pour le streaming QR code
+qr_stream_capture = None
+qr_stream_thread = None
+qr_stream_active = False
+qr_stream_lock = threading.Lock()
+latest_qr_result = None
+
+def qr_stream_worker(video_url=None, camera_index=0):
+    """Thread worker pour capturer et analyser le flux vidéo QR code"""
+    global qr_stream_capture, qr_stream_active, latest_qr_result
+    
+    try:
+        # Ouvrir le flux vidéo
+        if video_url:
+            qr_stream_capture = cv2.VideoCapture(video_url)
+        else:
+            qr_stream_capture = cv2.VideoCapture(camera_index)
+        
+        if not qr_stream_capture.isOpened():
+            error_msg = f"Impossible d'ouvrir la caméra {camera_index} ou l'URL {video_url}"
+            print(f"❌ {error_msg}")
+            with qr_stream_lock:
+                qr_stream_active = False
+                latest_qr_result = {"error": error_msg, "success": False}
+            return
+        
+        print(f"✅ Stream QR code démarré - Camera: {camera_index}, URL: {video_url or 'None'}")
+        
+        frame_skip = 3  # Analyser une frame sur 3 pour améliorer les performances
+        
+        while qr_stream_active:
+            ret, frame = qr_stream_capture.read()
+            
+            if not ret:
+                time_module.sleep(0.1)
+                continue
+            
+            # Analyser une frame sur frame_skip
+            if frame_skip > 0:
+                frame_skip -= 1
+                continue
+            frame_skip = 3
+            
+            # Détecter le QR code dans la frame
+            success, qr_id = detect_qr_in_image(frame)
+            
+            if success and qr_id:
+                # Vérifier le QR code
+                result = verify_qr_with_api(qr_id)
+                with qr_stream_lock:
+                    latest_qr_result = result
+                    if result.get("success"):
+                        # Arrêter le stream si un QR code valide est trouvé
+                        qr_stream_active = False
+            
+            time_module.sleep(0.2)  # Pause entre les analyses
+    
+    except Exception as e:
+        with qr_stream_lock:
+            qr_stream_active = False
+            latest_qr_result = {"error": str(e)}
+    finally:
+        if qr_stream_capture is not None:
+            qr_stream_capture.release()
+            qr_stream_capture = None
+
+@app.route("/scan_qr/stream/start", methods=["POST"])
+def handle_scan_qr_stream_start():
+    """
+    Démarre le streaming vidéo pour la détection automatique de QR code
+    ---
+    tags:
+      - QR Code
+    consumes:
+      - application/json
+    produces:
+      - application/json
+    parameters:
+      - in: body
+        name: body
+        schema:
+          type: object
+          properties:
+            video_url:
+              type: string
+              description: URL du flux vidéo (optionnel)
+            camera_index:
+              type: integer
+              description: Index de la caméra (par défaut 0)
+    responses:
+      200:
+        description: Stream démarré avec succès
+    """
+    global qr_stream_thread, qr_stream_active
+    
+    data = request.get_json() or {}
+    video_url = data.get("video_url")
+    camera_index = data.get("camera_index", 0)
+    
+    if qr_stream_active:
+        return jsonify({"error": "Stream déjà actif", "success": False}), 400
+    
+    # Arrêter le stream précédent s'il existe
+    qr_stream_active = False
+    if qr_stream_thread:
+        qr_stream_thread.join(timeout=2.0)
+    
+    qr_stream_active = True
+    qr_stream_thread = threading.Thread(
+        target=qr_stream_worker,
+        args=(video_url, camera_index),
+        daemon=True
+    )
+    qr_stream_thread.start()
+    
+    return jsonify({
+        "success": True,
+        "message": f"Stream QR code démarré (camera: {camera_index}, URL: {video_url or 'None'})"
+    })
+
+@app.route("/scan_qr/stream/stop", methods=["POST"])
+def handle_scan_qr_stream_stop():
+    """
+    Arrête le streaming vidéo QR code
+    ---
+    tags:
+      - QR Code
+    produces:
+      - application/json
+    responses:
+      200:
+        description: Stream arrêté avec succès
+    """
+    global qr_stream_active, qr_stream_thread
+    
+    qr_stream_active = False
+    if qr_stream_thread:
+        qr_stream_thread.join(timeout=2.0)
+        qr_stream_thread = None
+    
+    return jsonify({
+        "success": True,
+        "message": "Stream QR code arrêté"
+    })
+
+@app.route("/scan_qr/stream/status", methods=["GET"])
+def handle_scan_qr_stream_status():
+    """
+    Récupère le statut et les derniers résultats du stream QR code
+    ---
+    tags:
+      - QR Code
+    produces:
+      - application/json
+    responses:
+      200:
+        description: Statut du stream
+    """
+    global qr_stream_active, latest_qr_result
+    
+    with qr_stream_lock:
+        result = latest_qr_result.copy() if latest_qr_result else None
+    
+    return jsonify({
+        "active": qr_stream_active,
+        "result": result
+    })
+
+@app.route("/scan_qr/stream", methods=["POST"])
+def handle_scan_qr_stream():
+    """
+    Scanne un QR code depuis un flux vidéo (capture d'une frame)
+    ---
+    tags:
+      - QR Code
+    consumes:
+      - multipart/form-data
+    produces:
+      - application/json
+    parameters:
+      - in: formData
+        name: file
+        type: file
+        required: true
+        description: Image/frame du flux vidéo contenant le QR code à scanner
+      - in: formData
+        name: video_url
+        type: string
+        required: false
+        description: URL du flux vidéo (optionnel)
+    responses:
+      200:
+        description: Résultat du scan (peut être vide si aucun QR code détecté)
+        schema:
+          type: object
+          properties:
+            detected:
+              type: boolean
+            qr_id:
+              type: string
+            success:
+              type: boolean
+            reservation:
+              type: object
+            client:
+              type: object
+    """
+    if "file" not in request.files:
+        return jsonify({"detected": False, "success": False}), 200
+    
+    file = request.files["file"]
+    
+    try:
+        # Lire l'image
+        file_bytes = file.read()
+        if len(file_bytes) == 0:
+            return jsonify({"detected": False, "success": False}), 200
+            
+        nparr = np.frombuffer(file_bytes, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+        if img is None:
+            return jsonify({"detected": False, "success": False}), 200
+        
+        # Détecter le QR code
+        success, qr_id = detect_qr_in_image(img)
+        
+        if not success:
+            return jsonify({"detected": False, "success": False}), 200
+        
+        # Vérifier le QR code via l'API
+        result = verify_qr_with_api(qr_id)
+        result["detected"] = True
+        return jsonify(result)
+            
+    except Exception as e:
+        return jsonify({"detected": False, "success": False, "error": str(e)}), 200
+
+@app.route("/email/config", methods=["GET"])
+def get_email_config():
+    """
+    Récupère la configuration email
+    ---
+    tags:
+      - System
+    produces:
+      - application/json
+    responses:
+      200:
+        description: Configuration email
+        schema:
+          type: object
+          properties:
+            manager_email:
+              type: string
+            smtp_server:
+              type: string
+            smtp_port:
+              type: integer
+            email_enabled:
+              type: boolean
+    """
+    config = load_email_config()
+    # Ne pas exposer le mot de passe SMTP
+    safe_config = {
+        "manager_email": config.get("manager_email", ""),
+        "smtp_server": config.get("smtp_server", ""),
+        "smtp_port": config.get("smtp_port", 587),
+        "email_enabled": config.get("email_enabled", True),
+        "smtp_username": config.get("smtp_username", ""),
+        "smtp_password_configured": bool(config.get("smtp_password", ""))
+    }
+    return jsonify(safe_config)
+
+
+@app.route("/email/config", methods=["PUT", "POST"])
+def update_email_config():
+    """
+    Met à jour la configuration email
+    ---
+    tags:
+      - System
+    consumes:
+      - application/json
+    produces:
+      - application/json
+    parameters:
+      - in: body
+        name: config
+        schema:
+          type: object
+          properties:
+            manager_email:
+              type: string
+            smtp_server:
+              type: string
+            smtp_port:
+              type: integer
+            smtp_username:
+              type: string
+            smtp_password:
+              type: string
+            email_enabled:
+              type: boolean
+    responses:
+      200:
+        description: Configuration mise à jour avec succès
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            message:
+              type: string
+      400:
+        description: Erreur de validation
+    """
+    try:
+        data = request.get_json()
+        config = load_email_config()
+        
+        # Mettre à jour les champs fournis
+        if "manager_email" in data:
+            email = data["manager_email"].strip()
+            if email and '@' in email:
+                config["manager_email"] = email
+            else:
+                return jsonify({"success": False, "error": "Adresse email invalide"}), 400
+        
+        if "smtp_server" in data:
+            config["smtp_server"] = data["smtp_server"].strip()
+        
+        if "smtp_port" in data:
+            config["smtp_port"] = int(data["smtp_port"])
+        
+        if "smtp_username" in data:
+            config["smtp_username"] = data["smtp_username"].strip()
+        
+        if "smtp_password" in data:
+            # Si le mot de passe est fourni, le mettre à jour
+            # Si c'est une chaîne vide ou "*", ne pas le modifier
+            password = data["smtp_password"].strip()
+            if password and password != "*":
+                config["smtp_password"] = password
+        
+        if "email_enabled" in data:
+            config["email_enabled"] = bool(data["email_enabled"])
+        
+        save_email_config(config)
+        
+        return jsonify({
+            "success": True,
+            "message": "Configuration email mise à jour avec succès",
+            "manager_email": config.get("manager_email")
+        })
+        
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+
+
+@app.route("/")
+def home():
+    """
+    Page d'accueil de l'API
+    ---
+    tags:
+      - System
+    produces:
+      - text/plain
+    responses:
+      200:
+        description: Message de bienvenue
+        schema:
+          type: string
+        example: "Serveur Pepper-Llama en ligne 🚀"
+    """
+    return "Serveur Pepper-Llama en ligne 🚀"
+
+
+# --- ROUTES DE VALIDATION ET CONFIRMATION DE RÉSERVATION ---
+
+@app.route('/validate')
+def validate_reservation():
+    """
+    Page de validation de réservation
+    ---
+    parameters:
+      - name: session_id
+        in: query
+        type: string
+        required: true
+        description: ID de la session de réservation
+      - name: action
+        in: query
+        type: string
+        required: false
+        description: Action à effectuer (validate_reservation)
+    """
+    from services.chat import get_reservation_session
+
+    session_id = request.args.get('session_id')
+    action = request.args.get('action')
+
+    if not session_id:
+        return render_template('error.html', message="Session ID manquant"), 400
+
+    user_data, current_step = get_reservation_session(session_id)
+
+    if not user_data or current_step != 'complete':
+        return render_template('error.html', message="Session de réservation invalide ou expirée"), 400
+
+    return render_template('validation.html', session_id=session_id, user_data=user_data)
+
+
+@app.route('/get_reservation_session')
+def get_reservation_session_endpoint():
+    """
+    Récupère les données de session de réservation
+    ---
+    parameters:
+      - name: session_id
+        in: query
+        type: string
+        required: true
+        description: ID de la session de réservation
+    """
+    from services.chat import get_reservation_session
+
+    session_id = request.args.get('session_id')
+    if not session_id:
+        return jsonify({"error": "Session ID manquant"}), 400
+
+    user_data, current_step = get_reservation_session(session_id)
+
+    if not user_data:
+        return jsonify({"error": "Session non trouvée"}), 404
+
+    return jsonify({
+        "session_id": session_id,
+        "user_data": user_data,
+        "current_step": current_step
+    })
+
+
+@app.route('/confirm_reservation', methods=['POST'])
+def confirm_reservation():
+    """
+    Confirme et finalise la réservation
+    ---
+    parameters:
+      - name: session_id
+        in: body
+        type: string
+        required: true
+        description: ID de la session de réservation
+      - name: send_email
+        in: body
+        type: boolean
+        required: false
+        description: Envoyer la confirmation par email
+    """
+    from services.chat import get_reservation_session, delete_reservation_session
+    from services.make_reservation import make_reservation
+    from services.email import send_reservation_confirmation
+
+    data = request.get_json()
+    session_id = data.get('session_id')
+    send_email = data.get('send_email', False)
+
+    if not session_id:
+        return jsonify({"error": "Session ID manquant"}), 400
+
+    user_data, current_step = get_reservation_session(session_id)
+
+    if not user_data or current_step != 'complete':
+        return jsonify({"error": "Session de réservation invalide"}), 400
+
+    try:
+        # Créer la réservation dans la base de données
+        reservation_result = make_reservation(user_data)
+
+        if reservation_result.get('success'):
+            # Envoyer les emails de confirmation
+            if send_email and user_data.get('email'):
+                email_result = send_reservation_confirmation(user_data)
+                if not email_result.get('success'):
+                    print(f"⚠️ Échec envoi email: {email_result.get('error')}")
+
+            # Supprimer la session temporaire
+            delete_reservation_session(session_id)
+
+            return jsonify({
+                "success": True,
+                "message": "Réservation confirmée avec succès !",
+                "reservation_id": reservation_result.get('reservation_id')
+            })
+        else:
+            return jsonify({"error": "Échec de la création de la réservation"}), 500
+
+    except Exception as e:
+        print(f"Erreur confirmation réservation: {e}")
+        return jsonify({"error": "Erreur interne du serveur"}), 500
+
+
+@app.route('/reservation_success')
+def reservation_success():
+    """
+    Page de succès après confirmation de réservation
+    ---
+    parameters:
+      - name: reservation_id
+        in: query
+        type: string
+        required: false
+        description: ID de la réservation créée
+    """
+    reservation_id = request.args.get('reservation_id')
+    return render_template('success.html', reservation_id=reservation_id)
+
+
+@app.route('/chat')
+def chat_page():
+    """
+    Page de chat pour les réservations
+    """
+    return render_template('chat.html')
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=True)
