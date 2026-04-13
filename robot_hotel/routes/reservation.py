@@ -13,7 +13,8 @@ from services.make_reservation import (
     store_validated_reservation,
 )
 from services.chat import get_reservation_session, delete_reservation_session, save_reservation_session
-from services.email import send_validation_email, send_reservation_confirmation
+from services.email import send_validation_email, send_reservation_confirmation, send_reservation_email
+from utils.qr_code import generate_reservation_qrcode_file
 
 bp = Blueprint('reservation', __name__)
 
@@ -298,6 +299,27 @@ def confirm_reservation():
                         print("⚠️ Email non envoyé:", email_result.get('error', 'inconnu'))
                 except Exception as e:
                     print("⚠️ Erreur envoi email:", e)
+            try:
+                reservation_id = reservation_result.get('reservation_id', 'N/A')
+                qr_code_path = reservation_result.get('qr_code_path')
+                if not qr_code_path and reservation_id and str(reservation_id) != 'N/A':
+                    qr_code_path = generate_reservation_qrcode_file(reservation_id)
+                rd = reservation_result.get('reservation_data') or user_data
+                email_result = send_reservation_email(
+                    reservation_id=reservation_id,
+                    client_name=rd.get('nom', ''),
+                    client_prenom=rd.get('prenom', ''),
+                    type_chambre=rd.get('type_chambre', ''),
+                    date_arrivee=rd.get('date_arrivee', ''),
+                    date_depart=rd.get('date_depart', ''),
+                    qr_code_path=qr_code_path
+                )
+                if email_result.get('status') == 'success':
+                    print("📧 Email avec QR code envoyé au gestionnaire")
+                elif email_result.get('status') != 'disabled':
+                    print("⚠️ Email gestionnaire (QR):", email_result.get('message', ''))
+            except Exception as e:
+                print("⚠️ Erreur envoi email gestionnaire (QR):", e)
             delete_reservation_session(session_id)
             return jsonify({
                 "success": True,

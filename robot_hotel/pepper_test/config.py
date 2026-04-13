@@ -5,7 +5,7 @@ Configuration du robot Pepper et de l'API Flask
 import os
 
 ROBOT_CONFIG = {
-    "ip": os.environ.get("PEPPER_IP", "192.168.13.213"),
+    "ip": os.environ.get("PEPPER_IP", "192.168.13.222"),
     "port": int(os.environ.get("PEPPER_PORT", "9559")),
     "language": os.environ.get("PEPPER_LANGUAGE", "French"),
 }

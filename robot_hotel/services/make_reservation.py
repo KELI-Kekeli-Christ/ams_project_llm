@@ -574,7 +574,8 @@ def make_reservation_from_data(user_data: dict) -> dict:
             "status": "success",
             "message": "Réservation créée avec succès",
             "reservation_id": reservation_result.get('id_reservation'),
-            "reservation_data": reservation_data
+            "reservation_data": reservation_data,
+            "qr_code_path": reservation_result.get('qr_code_path'),
         }
         
     except Exception as e:

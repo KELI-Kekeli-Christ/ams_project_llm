@@ -19,19 +19,21 @@ def handle_scan_qr():
 
     file = request.files["file"]
     if file.filename == "":
-        return jsonify({"error": "No file selected", "success": False}), 400
+        return jsonify({"error": "No file selected (send file with a filename)", "success": False}), 400
 
     try:
         file_bytes = file.read()
+        if not file_bytes or len(file_bytes) < 100:
+            return jsonify({"error": "Image file empty or too small", "success": False}), 400
         nparr = np.frombuffer(file_bytes, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
         if img is None:
-            return jsonify({"error": "Invalid image file", "success": False}), 400
+            return jsonify({"error": "Invalid image file (format not supported)", "success": False}), 400
 
         success, qr_id = detect_qr_in_image(img)
         if not success:
-            return jsonify({"error": "QR code not detected in image", "success": False}), 400
+            return jsonify({"error": "QR code not detected in image", "success": False, "detected": False}), 200
 
         result = verify_qr_with_api(qr_id)
         if result["success"]:

@@ -23,6 +23,7 @@ from routes import (
     email_bp,
     pages_bp,
     tablet_bp,
+    conversation_bp,
 )
 
 # Message vocal (mic) : envoi d'un message audio, réponse en texte
@@ -66,6 +67,7 @@ def create_app():
     app.register_blueprint(email_bp)
     app.register_blueprint(pages_bp)
     app.register_blueprint(tablet_bp)
+    app.register_blueprint(conversation_bp)
 
     # Gestionnaire d'erreur 404
     @app.errorhandler(404)

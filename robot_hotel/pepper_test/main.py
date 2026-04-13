@@ -18,9 +18,14 @@ Lancement : python main.py
 """
 # IMPORTANT: choreographe doit être importé en premier pour configurer
 # l'environnement (sys.path, LD_LIBRARY_PATH) avant l'import du module qi
+import atexit
 import choreographe  # noqa: F401
 
+from api_client import release_micro
 from conversation import run_conversation
+
+# À la sortie du processus (Ctrl+C, fin normale, crash), libérer le micro
+atexit.register(release_micro)
 
 if __name__ == "__main__":
     run_conversation()

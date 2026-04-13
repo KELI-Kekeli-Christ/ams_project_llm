@@ -198,6 +198,65 @@ def create_tablet_html(
         subtitle_escaped = html.escape(subtitle)
         subtitle_html = f"<div style='margin-top: 20px; padding: 15px; background-color: #9aafff; border-radius: 8px;'><p style='font-size: 18px; margin: 0; color: white;'><strong>Vous:</strong> {subtitle_escaped}</p></div>"
 
+    # Wake word polling : démarre l'écoute et redirige vers la page de réservation
+    wake_word_html = ""
+    if api_url and not mic_active:
+        reservation_url = api_url.rstrip('/') + '/tablet/reservation'
+        wake_start_url = api_url.rstrip('/') + '/record/wake_word/start'
+        wake_status_url = api_url.rstrip('/') + '/record/wake_word/status'
+        wake_reset_url = api_url.rstrip('/') + '/record/wake_word/reset'
+        wake_word_html = f"""
+        <p style="font-size:13px; color:rgba(255,255,255,0.7); margin-top:10px;">
+            🎙 En écoute : «&nbsp;bonjour&nbsp;», «&nbsp;hey pepper&nbsp;», «&nbsp;ok pepper&nbsp;»…
+        </p>
+        <script>
+        (function() {{
+            var startUrl = '{wake_start_url}';
+            var statusUrl = '{wake_status_url}';
+            var resetUrl = '{wake_reset_url}';
+            var reservationUrl = '{reservation_url}';
+            var pollTimer = null;
+
+            function xhrGet(url, cb) {{
+                var r = new XMLHttpRequest();
+                r.open('GET', url, true);
+                r.onreadystatechange = function() {{
+                    if (r.readyState === 4) {{
+                        try {{ cb(JSON.parse(r.responseText)); }} catch(e) {{ cb(null); }}
+                    }}
+                }};
+                r.onerror = function() {{ cb(null); }};
+                r.send();
+            }}
+            function xhrPost(url, cb) {{
+                var r = new XMLHttpRequest();
+                r.open('POST', url, true);
+                r.setRequestHeader('Content-Type', 'application/json');
+                r.onreadystatechange = function() {{ if (r.readyState === 4 && cb) cb(); }};
+                r.onerror = function() {{ if (cb) cb(); }};
+                r.send();
+            }}
+
+            function startPolling() {{
+                pollTimer = setInterval(function() {{
+                    xhrGet(statusUrl, function(data) {{
+                        if (data && data.wake_word_detected) {{
+                            clearInterval(pollTimer);
+                            xhrPost(resetUrl, function() {{
+                                window.location.href = reservationUrl;
+                            }});
+                        }}
+                    }});
+                }}, 2000);
+            }}
+
+            // Démarrer l'écoute des wake words et lancer le polling
+            xhrPost(startUrl, function() {{ startPolling(); }});
+            // Lancer le polling immédiatement au cas où la détection est déjà active
+            startPolling();
+        }})();
+        </script>"""
+
     html_content = f"""<!DOCTYPE html>
 <html>
 <head>
@@ -216,6 +275,7 @@ def create_tablet_html(
         {mic_button_html}
         {call_button_html}
         {chat_qr_html}
+        {wake_word_html}
     </div>
 </body>
 </html>"""

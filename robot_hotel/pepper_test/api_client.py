@@ -36,6 +36,15 @@ def record_audio():
         return None
 
 
+def release_micro():
+    """Libère le micro (POST /record/stop). À appeler au démarrage et à la sortie pour éviter
+    qu'un ancien lancement ait laissé l'enregistrement actif (micro indisponible)."""
+    try:
+        requests.post("{}/record/stop".format(API_CONFIG["base_url"]), timeout=3)
+    except Exception:
+        pass
+
+
 def record_audio_manual():
     """Enregistrement manuel (démarré/arrêté via bouton micro). Retourne chemin ou None."""
     try:
@@ -174,18 +183,14 @@ def chat_with_api(message, language=None, session_id=None):
         print("Envoi du message au service de chat...")
         if isinstance(message, bytes):
             message = message.decode('utf-8', errors='ignore')
-        try:
-            data_obj = {"message": str(message)}
-            if language:
-                data_obj["language"] = language
-            if session_id:
-                data_obj["session_id"] = session_id
-            payload = json.dumps(data_obj, ensure_ascii=False).encode('utf-8')
-        except TypeError:
-            data_obj = {"message": str(message)}
-            if session_id:
-                data_obj["session_id"] = session_id
-            payload = json.dumps(data_obj, ensure_ascii=False).encode('utf-8')
+        # Ne pas utiliser str(message) ici : en Python 2, str(unicode avec accents) => UnicodeEncodeError.
+        # Garder le texte tel quel pour json.dumps(ensure_ascii=False).encode('utf-8').
+        data_obj = {"message": message}
+        if language:
+            data_obj["language"] = language
+        if session_id:
+            data_obj["session_id"] = session_id
+        payload = json.dumps(data_obj, ensure_ascii=False).encode('utf-8')
         headers = {"Content-Type": "application/json; charset=utf-8"}
         response = requests.post(
             "{}/chat".format(API_CONFIG["base_url"]),
@@ -247,8 +252,9 @@ def scan_qr_code_with_api(image_file_path=None, camera_url=None):
     try:
         url = "{}/scan_qr".format(API_CONFIG["base_url"])
         if image_file_path and os.path.exists(image_file_path):
+            name = os.path.basename(image_file_path) or "image.png"
             with open(image_file_path, "rb") as f:
-                response = requests.post(url, files={"file": f}, timeout=API_CONFIG["timeout"])
+                response = requests.post(url, files={"file": (name, f)}, timeout=API_CONFIG["timeout"])
         elif camera_url:
             temp_file = None
             try:
@@ -274,8 +280,9 @@ def scan_qr_code_with_api(image_file_path=None, camera_url=None):
                 else:
                     print("❌ OpenCV non disponible. pip install opencv-python")
                     return None
+                name = os.path.basename(temp_file) or "scan.png"
                 with open(temp_file, "rb") as f:
-                    response = requests.post(url, files={"file": f}, timeout=API_CONFIG["timeout"])
+                    response = requests.post(url, files={"file": (name, f)}, timeout=API_CONFIG["timeout"])
             except Exception as e:
                 print("❌ Erreur capture caméra: {}".format(e))
                 return None
@@ -310,3 +317,86 @@ def is_qr_scan_request(text):
         "mon qr", "mon code", "ma reservation", "check", "scan"
     ]
     return any(kw in text_lower for kw in keywords)
+
+
+# ─── Wake word ────────────────────────────────────────────────────────────────
+
+def start_wake_word_detection():
+    """Démarre l'écoute des wake words côté serveur Flask."""
+    try:
+        requests.post("{}/record/wake_word/start".format(API_CONFIG["base_url"]), timeout=5)
+    except Exception as e:
+        print("Erreur démarrage wake word: {}".format(e))
+
+
+def check_wake_word_status():
+    """Retourne True si un wake word a été détecté."""
+    try:
+        r = requests.get("{}/record/wake_word/status".format(API_CONFIG["base_url"]), timeout=2)
+        if r.ok:
+            return r.json().get("wake_word_detected", False)
+    except Exception:
+        pass
+    return False
+
+
+def reset_wake_word():
+    """Réinitialise l'état du wake word."""
+    try:
+        requests.post("{}/record/wake_word/reset".format(API_CONFIG["base_url"]), timeout=3)
+    except Exception:
+        pass
+
+
+# ─── Réservation conversationnelle pas à pas ─────────────────────────────────
+
+def conversation_start():
+    """Démarre une conversation de réservation pas à pas. Retourne dict ou None."""
+    try:
+        r = requests.post(
+            "{}/conversation/start".format(API_CONFIG["base_url"]),
+            timeout=API_CONFIG["timeout"]
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        print("Erreur conversation/start: {}".format(e))
+        return None
+
+
+def conversation_answer(session_id):
+    """
+    Envoie la réponse (dernier enregistrement) à l'étape courante.
+    Retourne dict ou None.
+    """
+    try:
+        r = requests.post(
+            "{}/conversation/answer".format(API_CONFIG["base_url"]),
+            json={"session_id": session_id},
+            timeout=API_CONFIG["timeout"]
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        print("Erreur conversation/answer: {}".format(e))
+        return None
+
+
+def conversation_state(session_id):
+    """
+    Retourne l'état courant d'une conversation ou None si terminée/expirée.
+    Un retour None signifie que la réservation a été finalisée.
+    """
+    try:
+        r = requests.get(
+            "{}/conversation/state".format(API_CONFIG["base_url"]),
+            params={"session_id": session_id},
+            timeout=5
+        )
+        if r.status_code == 404:
+            return None  # conversation terminée / confirmée
+        if r.ok:
+            return r.json()
+    except Exception:
+        pass
+    return None

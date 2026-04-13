@@ -13,6 +13,7 @@ from utils.helpers import transliterate_to_ascii
 from flask_utils import check_flask_server, start_flask_server_background
 from api_client import (
     record_audio_manual,
+    release_micro,
     transcribe_audio,
     chat_with_api,
     chat_voice,
@@ -20,6 +21,12 @@ from api_client import (
     is_reservation_request,
     is_qr_scan_request,
     scan_qr_code_with_api,
+    start_wake_word_detection,
+    check_wake_word_status,
+    reset_wake_word,
+    conversation_start,
+    conversation_answer,
+    conversation_state,
 )
 from ui.tablet_html import create_tablet_html
 from robot_manager import RobotManager
@@ -57,7 +64,7 @@ def _scan_qr_from_robot_camera(robot):
                     with open(tmp.name, 'rb') as f:
                         resp = requests.post(
                             "{}/scan_qr".format(API_CONFIG["base_url"]),
-                            files={"file": f},
+                            files={"file": ("scan.jpg", f)},
                             timeout=API_CONFIG["timeout"]
                         )
                     resp.raise_for_status()
@@ -79,7 +86,7 @@ def _scan_qr_from_robot_camera(robot):
                     with open(tmp.name, 'rb') as f:
                         resp = requests.post(
                             "{}/scan_qr".format(API_CONFIG["base_url"]),
-                            files={"file": f},
+                            files={"file": ("scan.jpg", f)},
                             timeout=API_CONFIG["timeout"]
                         )
                     resp.raise_for_status()
@@ -109,6 +116,283 @@ def _tablet_call_status():
     except Exception:
         pass
     return {"call_requested": False, "call_stop": False}
+
+
+def _tablet_scan_qr_requested():
+    """Retourne True si l'utilisateur a demandé un scan QR depuis la tablette (bouton SCAN QR)."""
+    try:
+        r = requests.get("{}/tablet/scan_qr/status".format(API_CONFIG["base_url"]), timeout=2)
+        if r.ok:
+            return r.json().get("scan_qr_requested", False)
+    except Exception:
+        pass
+    return False
+
+
+def _clear_tablet_scan_qr_requested():
+    """Efface la demande de scan QR côté serveur après prise en charge."""
+    try:
+        requests.post("{}/tablet/scan_qr/cleared".format(API_CONFIG["base_url"]), timeout=2)
+    except Exception:
+        pass
+
+
+def _wait_for_wake_word(robot, tts_lang):
+    """
+    Affiche la page d'attente sur la tablette et attend un wake word.
+    Retourne True dès qu'un mot déclencheur est détecté.
+    Quitte aussi si un appel vocal ou un scan QR est demandé (retourne False).
+    """
+    base_url = API_CONFIG["base_url"].rstrip("/")
+
+    # Démarrer l'écoute côté serveur
+    reset_wake_word()
+    start_wake_word_detection()
+
+    # Afficher la page d'attente sur la tablette
+    if robot and robot.tablet:
+        robot.display_text(create_tablet_html(
+            title="Pepper",
+            message="Je vous écoute...",
+            subtitle="",
+            status="Dites « Bonjour » ou « Hey Pepper » pour commencer",
+            show_mic_button=False,
+            mic_active=False,
+            robot_ip=getattr(robot, 'ip', None)
+        ))
+
+    print("En attente d'un wake word (bonjour, hey pepper, ok pepper…)")
+
+    while True:
+        time.sleep(1.0)
+
+        # Vérifier si un appel ou scan QR est demandé depuis la tablette
+        try:
+            if _tablet_call_status().get("call_requested"):
+                return False
+            if _tablet_scan_qr_requested():
+                return False
+        except Exception:
+            pass
+
+        if check_wake_word_status():
+            reset_wake_word()
+            print("Wake word détecté !")
+            if robot and robot.tts:
+                safe_say(robot, "Oui, je vous écoute. Comment puis-je vous aider ?", language=tts_lang)
+            return True
+
+
+def _build_email_form_html(session_id, api_url, collected):
+    """Génère la page HTML pour la saisie de l'email sur la tablette."""
+    nom = collected.get("nom", "")
+    prenom = collected.get("prenom", "")
+    type_ch = collected.get("type_chambre", "")
+    arr = collected.get("date_arrivee", "")
+    dep = collected.get("date_depart", "")
+    confirm_url = api_url.rstrip("/") + "/conversation/confirm"
+    state_url = api_url.rstrip("/") + "/conversation/state?session_id=" + session_id
+
+    return """<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Confirmation - Pepper</title>
+  <style>
+    body {{ background:#667eea; color:white; font-family:Arial,sans-serif;
+            display:flex; align-items:center; justify-content:center;
+            min-height:100vh; margin:0; padding:16px; }}
+    .card {{ background:#8a9eff; border-radius:18px; padding:28px 24px;
+             width:100%; max-width:480px; text-align:center; }}
+    h2 {{ font-size:26px; margin:0 0 14px; }}
+    .recap {{ background:#9aafff; border-radius:10px; padding:14px;
+              font-size:17px; text-align:left; margin-bottom:18px; line-height:1.8; }}
+    input {{ width:100%; font-size:20px; padding:12px; border-radius:10px;
+             border:none; color:#333; margin-bottom:14px; }}
+    button {{ background:#43a047; border:none; border-radius:24px;
+              padding:14px 40px; font-size:22px; color:white; cursor:pointer; width:100%; }}
+    button:disabled {{ opacity:.6; }}
+    .ok {{ font-size:24px; color:#b9f6ca; margin-top:10px; }}
+  </style>
+</head>
+<body>
+<div class="card">
+  <h2>📧 Confirmation de réservation</h2>
+  <div class="recap">
+    <strong>Nom :</strong> {prenom} {nom}<br>
+    <strong>Chambre :</strong> {type_ch}<br>
+    <strong>Arrivée :</strong> {arr}<br>
+    <strong>Départ :</strong> {dep}
+  </div>
+  <input type="email" id="em" placeholder="votre@email.com" />
+  <button id="btn" onclick="send()">✅ Confirmer</button>
+  <div id="msg"></div>
+</div>
+<script>
+function send() {{
+  var em = document.getElementById('em').value.trim();
+  if (!em || !em.includes('@')) {{ alert('Email invalide'); return; }}
+  var btn = document.getElementById('btn');
+  btn.disabled = true; btn.textContent = 'Envoi…';
+  var r = new XMLHttpRequest();
+  r.open('POST', '{confirm_url}', true);
+  r.setRequestHeader('Content-Type', 'application/json');
+  r.onreadystatechange = function() {{
+    if (r.readyState !== 4) return;
+    var d; try {{ d = JSON.parse(r.responseText); }} catch(e) {{ d = {{}}; }}
+    if (d.status === 'success') {{
+      btn.style.display = 'none';
+      document.getElementById('em').style.display = 'none';
+      document.getElementById('msg').innerHTML =
+        '<p class="ok">✅ Réservation confirmée !<br>N° ' + (d.reservation_id||'N/A') + '<br>' +
+        (d.email_sent ? '📧 Email envoyé !' : '') + '</p>';
+    }} else {{
+      btn.disabled = false; btn.textContent = '✅ Confirmer';
+      alert('Erreur : ' + (d.error || 'réessayez'));
+    }}
+  }};
+  r.send(JSON.stringify({{session_id: '{session_id}', email: em}}));
+}}
+</script>
+</body>
+</html>""".format(
+        nom=nom, prenom=prenom, type_ch=type_ch, arr=arr, dep=dep,
+        confirm_url=confirm_url, session_id=session_id
+    )
+
+
+def run_reservation_conversation(robot, tts_lang):
+    """
+    Flux de réservation conversationnel pas à pas via l'API /conversation/*.
+    Le robot pose chaque question à voix haute, enregistre la réponse, passe à l'étape suivante.
+    Quand toutes les infos vocales sont collectées, affiche le formulaire email sur la tablette.
+    """
+    base_url = API_CONFIG["base_url"].rstrip("/")
+
+    # Démarrer la conversation
+    conv = conversation_start()
+    if not conv or not conv.get("session_id"):
+        if robot and robot.tts:
+            safe_say(robot, "Désolé, je ne peux pas démarrer la réservation maintenant.", language=tts_lang)
+        return
+
+    session_id = conv["session_id"]
+    question = conv.get("question", "")
+    label = conv.get("label", "")
+
+    print("Conversation réservation démarrée : session={}".format(session_id))
+
+    while True:
+        # Dire la question
+        if robot and robot.tts:
+            safe_say(robot, question, language=tts_lang)
+
+        if robot and robot.tablet:
+            robot.display_text(create_tablet_html(
+                title="Réservation",
+                message=question,
+                subtitle="",
+                status=label,
+                show_mic_button=True,
+                mic_active=False,
+                robot_ip=getattr(robot, 'ip', None)
+            ))
+
+        # Enregistrer la réponse
+        audio_file = _record_audio(robot)
+        try:
+            requests.post("{}/record/stop".format(base_url), timeout=3)
+        except Exception:
+            pass
+
+        if not audio_file:
+            if robot and robot.tts:
+                safe_say(robot, "Je n'ai pas entendu. " + question, language=tts_lang)
+            continue
+
+        # Afficher "traitement"
+        if robot and robot.tablet:
+            robot.display_text(create_tablet_html(
+                title="Traitement…",
+                message="Un instant…",
+                status=label,
+                show_mic_button=False,
+                robot_ip=getattr(robot, 'ip', None)
+            ))
+
+        # Envoyer au serveur
+        result = conversation_answer(session_id)
+        if not result:
+            if robot and robot.tts:
+                safe_say(robot, "Erreur serveur. " + question, language=tts_lang)
+            continue
+
+        status = result.get("status")
+        transcript = result.get("transcript", "")
+        print("Réponse : status={} transcript={}".format(status, transcript))
+
+        if status == "continue":
+            question = result.get("question", "")
+            label = result.get("label", "")
+
+        elif status == "need_email":
+            # Toutes les infos vocales collectées — afficher le formulaire email sur la tablette
+            collected = result.get("collected", {})
+            if robot and robot.tts:
+                safe_say(robot, result.get("question", "Veuillez entrer votre email sur la tablette."), language=tts_lang)
+            if robot and robot.tablet:
+                email_html = _build_email_form_html(session_id, base_url, collected)
+                robot.display_text(email_html)
+
+            # Attendre que l'utilisateur confirme (la session disparaît quand confirmée)
+            print("En attente de la saisie email sur la tablette...")
+            max_wait = 300  # 5 minutes max
+            waited = 0
+            confirmed = False
+            while waited < max_wait:
+                time.sleep(2)
+                waited += 2
+                state = conversation_state(session_id)
+                if state is None:
+                    # session supprimée = réservation confirmée
+                    confirmed = True
+                    break
+
+            if confirmed:
+                if robot and robot.tts:
+                    safe_say(robot, "Parfait, votre réservation est confirmée ! Un email de confirmation vous a été envoyé. Au plaisir !", language=tts_lang)
+                if robot and robot.tablet:
+                    robot.display_text(create_tablet_html(
+                        title="✅ Réservé !",
+                        message="Votre réservation est confirmée.",
+                        status="Email de confirmation envoyé",
+                        show_mic_button=True,
+                        mic_active=False,
+                        robot_ip=getattr(robot, 'ip', None)
+                    ))
+                    time.sleep(3)
+            else:
+                if robot and robot.tts:
+                    safe_say(robot, "Le temps imparti est écoulé. Veuillez réessayer.", language=tts_lang)
+            return
+
+        elif status == "retry":
+            # La réponse n'a pas été comprise, on repose la même question
+            question = result.get("question", question)
+            if robot and robot.tts:
+                safe_say(robot, question, language=tts_lang)
+
+        elif status == "error":
+            err = result.get("error", "erreur inconnue")
+            print("Erreur conversation: {}".format(err))
+            if robot and robot.tts:
+                safe_say(robot, "Désolé, une erreur s'est produite. Réessayons plus tard.", language=tts_lang)
+            return
+
+        else:
+            print("Statut inattendu: {}".format(status))
+            return
 
 
 def run_robot_call_flow(robot, tts_lang, conversation_context):
@@ -176,6 +460,8 @@ def run_robot_call_flow(robot, tts_lang, conversation_context):
             conversation_context["chat_session_id"] = session_id
         if response and robot.tts:
             safe_say(robot, response, language=tts_lang)
+        elif robot.tts and (transcript or audio_file):
+            safe_say(robot, "Je n'ai pas bien compris. Pouvez-vous répéter ?", language=tts_lang)
         if check_stop():
             break
 
@@ -206,6 +492,9 @@ def run_conversation():
     print("  Langue: {}".format(ROBOT_CONFIG["language"]))
     print("=" * 60)
 
+    # Libérer le micro si un ancien lancement l'a laissé actif (évite "micro indisponible")
+    release_micro()
+
     print("\nVerification du serveur Flask...")
     if not check_flask_server():
         print("Le serveur Flask n'est pas accessible sur {}".format(API_CONFIG["base_url"]))
@@ -227,6 +516,7 @@ def run_conversation():
     robot.initialize_services()
     print("Attente de stabilisation des services...")
     time.sleep(2.0)
+    robot.stop_pepper_microphones()
 
     try:
         if robot.audio_recorder and USE_PEPPER_MIC:
@@ -307,6 +597,74 @@ def run_conversation():
             except Exception as e:
                 print("Erreur check appel tablette: {}".format(e))
 
+            # Scan QR demandé depuis la tablette (bouton SCAN QR)
+            try:
+                if _tablet_scan_qr_requested():
+                    _clear_tablet_scan_qr_requested()
+                    print("Demande de scan QR detectee (bouton tablette).")
+                    if robot.tablet:
+                        robot.display_text(create_tablet_html(
+                            title="📷 Scan QR Code",
+                            message="Préparez votre QR code",
+                            subtitle="",
+                            status="🟡 Scan en cours...",
+                            show_mic_button=False,
+                            robot_ip=robot.ip
+                        ))
+                    if robot.tts:
+                        safe_say(robot, "Présentez votre QR code devant ma caméra, s'il vous plaît.", language=tts_lang)
+                    time.sleep(2)
+                    try:
+                        qr_result = _scan_qr_from_robot_camera(robot)
+                    except Exception as e:
+                        print("❌ Erreur scan QR: {}".format(e))
+                        qr_result = scan_qr_code_with_api(camera_url=robot.camera_url)
+                    if qr_result and qr_result.get("success"):
+                        client = qr_result.get("client", {})
+                        reservation = qr_result.get("reservation", {})
+                        qr_id = qr_result.get("qr_id", "N/A")
+                        client_name = "{} {}".format(client.get("prenom", ""), client.get("nom", "")).strip() or "Client"
+                        type_ch = reservation.get("type_chambre", "N/A")
+                        date_in = reservation.get("date_arrivee", "N/A")
+                        date_out = reservation.get("date_depart", "N/A")
+                        confirmation_msg = "Parfait ! Bonjour {}, votre réservation {} est confirmée. Type: {}, arrivée {}, départ {}. Au plaisir !".format(
+                            client_name, qr_id, type_ch, date_in, date_out
+                        )
+                        if robot.tts:
+                            safe_say(robot, confirmation_msg, language=tts_lang)
+                        if robot.tablet:
+                            result_message = "Bonjour {} — Réservation {} validée. Chambre: {} — Arrivée: {} — Départ: {}.".format(
+                                client_name, qr_id, type_ch, date_in, date_out
+                            )
+                            robot.display_text(create_tablet_html(
+                                title="✅ QR Code Validé",
+                                message=result_message,
+                                subtitle="ID réservation: {}".format(qr_id),
+                                status="🟢 Réservation confirmée",
+                                show_mic_button=True,
+                                mic_active=False,
+                                robot_ip=robot.ip
+                            ))
+                        time.sleep(3)
+                    else:
+                        err_msg = (qr_result or {}).get("error", "Non détecté") if qr_result else "Non détecté"
+                        if robot.tts:
+                            safe_say(robot, "Je n'ai pas pu scanner votre QR code. Repositionnez-le, s'il vous plaît.", language=tts_lang)
+                        if robot.tablet:
+                            robot.display_text(create_tablet_html(
+                                title="❌ Scan échoué",
+                                message="QR code non détecté ou invalide.",
+                                subtitle=str(err_msg)[:120],
+                                status="🔴 Erreur",
+                                show_mic_button=True,
+                                mic_active=False,
+                                robot_ip=robot.ip
+                            ))
+                        time.sleep(2)
+                    continue
+            except Exception as e:
+                print("Erreur traitement demande scan QR: {}".format(e))
+
             # QR détecté en arrière-plan
             try:
                 qr_scan = None
@@ -357,75 +715,17 @@ def run_conversation():
                         ))
                     time.sleep(1.0)
 
-            if robot.tablet:
-                robot.display_text(create_tablet_html(
-                    title="Pepper",
-                    message="Appuyez sur le micro pour parler",
-                    subtitle="",
-                    status="En attente",
-                    show_mic_button=True,
-                    mic_active=False,
-                    robot_ip=robot.ip
-                ))
-
-            if robot.tts and conversation_count > 1 and not conversation_context["in_reservation_mode"]:
-                safe_say(robot, "Comment puis-je vous aider ?", language=tts_lang)
-
-            print("\nCliquez sur le micro pour demarrer l'enregistrement...")
-            if robot.tablet:
-                robot.display_text(create_tablet_html(
-                    title="Pret",
-                    message="Cliquez sur le micro pour parler",
-                    status="En attente...",
-                    show_mic_button=True,
-                    mic_active=False,
-                    robot_ip=robot.ip
-                ))
-                local_ip = get_local_ip_for_robot(robot.ip)
-                print("URL de l'API pour la tablette: http://{}:5000".format(local_ip))
-
-            print("⏳ En attente du démarrage de l'enregistrement...")
-            max_wait_start = 10
-            recording_started = False
-            for _ in range(int(max_wait_start / 0.5)):
-                time.sleep(0.5)
-                try:
-                    status_response = requests.get("{}/record/status".format(API_CONFIG["base_url"]), timeout=2)
-                    if status_response.ok and status_response.json().get("recording", False):
-                        recording_started = True
-                        print("Enregistrement demarré via le bouton micro.")
-                        if robot.tablet:
-                            robot.display_text(create_tablet_html(
-                                title="Enregistrement...",
-                                message="Je vous ecoute",
-                                status="Enregistrement en cours... Cliquez sur le micro pour arreter",
-                                show_mic_button=True,
-                                mic_active=True,
-                                robot_ip=robot.ip
-                            ))
-                        break
-                except Exception:
-                    pass
-
-            if not recording_started:
-                try:
-                    response = requests.post("{}/record/start".format(API_CONFIG["base_url"]), timeout=5)
-                    if response.ok:
-                        recording_started = True
-                        print("Enregistrement demarre automatiquement.")
-                        if robot.tablet:
-                            robot.display_text(create_tablet_html(
-                                title="Enregistrement...",
-                                message="Je vous ecoute",
-                                status="Enregistrement en cours...",
-                                show_mic_button=True,
-                                mic_active=True,
-                                robot_ip=robot.ip
-                            ))
-                except Exception as e:
-                    print("❌ Erreur démarrage automatique: {}".format(e))
+            # ── Attente par wake word (remplace le bouton micro) ──────────────────
+            wake_detected = _wait_for_wake_word(robot, tts_lang)
+            if not wake_detected:
+                # call ou scan QR demandé depuis la tablette → géré par les blocs suivants
+                continue
 
             audio_file = _record_audio(robot)
+            try:
+                requests.post("{}/record/stop".format(API_CONFIG["base_url"]), timeout=3)
+            except Exception:
+                pass
             if not audio_file and robot.audio_recorder and USE_PEPPER_MIC:
                 try:
                     requests.post("{}/record/pepper_mode".format(API_CONFIG["base_url"]),
@@ -503,87 +803,12 @@ def run_conversation():
                 ))
             time.sleep(1)
 
-            # Mode réservation
+            # Mode réservation conversationnel pas à pas
             if is_reservation_request(transcribed_text) or conversation_context["in_reservation_mode"]:
-                conversation_context["in_reservation_mode"] = True
-                if robot.tablet:
-                    robot.display_text(create_tablet_html(
-                        title="📅 Réservation",
-                        message="Traitement de votre demande",
-                        subtitle=transcribed_text,
-                        status="🟡 Création en cours...",
-                        show_mic_button=False
-                    ))
-                reservation_result = make_reservation_with_api(audio_file)
-
-                if reservation_result and reservation_result.get("status") == "success":
-                    reservation_info = reservation_result.get("reservation", {})
-                    reservation_id = reservation_info.get("id_reservation") or reservation_info.get("id_res") or reservation_info.get("reservation_id") or "N/A"
-                    success_msg = "Parfait ! Votre réservation a été créée. Numéro: {}. Merci et à bientôt !".format(reservation_id)
-                    if robot.tts:
-                        safe_say(robot, success_msg, language=tts_lang)
-                    if robot.tablet:
-                        robot.display_text(create_tablet_html(
-                            title="✅ Réservation créée !",
-                            message="Numéro: {}".format(reservation_id),
-                            subtitle=transcribed_text,
-                            status="🟢 Succès",
-                            show_mic_button=True,
-                            mic_active=False
-                        ))
-                    conversation_context["in_reservation_mode"] = False
-                    conversation_context["collected_info"] = {}
-                    time.sleep(3)
-                else:
-                    reservation_data = reservation_result.get("reservation_data", {}) if reservation_result else {}
-                    error_msg = reservation_result.get("error", "").lower() if reservation_result else ""
-                    nom = reservation_data.get("nom", "").strip() or conversation_context["collected_info"].get("nom", "")
-                    prenom = reservation_data.get("prenom", "").strip() or conversation_context["collected_info"].get("prenom", "")
-                    missing_nom = not nom or nom.lower() in ["inconnu", ""]
-                    missing_prenom = not prenom or prenom.lower() in ["inconnu", ""]
-
-                    if missing_nom or missing_prenom or "nom" in error_msg or "prenom" in error_msg:
-                        if missing_nom and not conversation_context["collected_info"].get("nom"):
-                            missing_msg = "Pour créer votre réservation, j'ai besoin de votre nom. Quel est votre nom de famille ?"
-                        elif missing_prenom and not conversation_context["collected_info"].get("prenom"):
-                            missing_msg = "Merci. Et quel est votre prénom ?"
-                            if nom:
-                                conversation_context["collected_info"]["nom"] = nom
-                        else:
-                            missing_msg = "Il me manque des informations. Pouvez-vous me donner votre nom complet ?"
-                        if robot.tts:
-                            safe_say(robot, missing_msg, language=tts_lang)
-                        if robot.tablet:
-                            robot.display_text(create_tablet_html(
-                                title="❓ Information manquante",
-                                message=missing_msg,
-                                subtitle=transcribed_text,
-                                status="🟡 En attente",
-                                show_mic_button=True,
-                                mic_active=False
-                            ))
-                            time.sleep(10)
-                        if nom:
-                            conversation_context["collected_info"]["nom"] = nom
-                        if prenom:
-                            conversation_context["collected_info"]["prenom"] = prenom
-                        continue
-                    else:
-                        error_display = "Je suis désolé, il y a eu un problème. Pouvez-vous réessayer avec plus de détails ?"
-                        if robot.tts:
-                            safe_say(robot, error_display, language=tts_lang)
-                        if robot.tablet:
-                            robot.display_text(create_tablet_html(
-                                title="❌ Erreur",
-                                message="Problème lors de la création",
-                                subtitle=(reservation_result or {}).get("error", "Erreur")[:150],
-                                status="🔴 Erreur",
-                                show_mic_button=True,
-                                mic_active=False
-                            ))
-                        conversation_context["in_reservation_mode"] = False
-                        conversation_context["collected_info"] = {}
-                        continue
+                conversation_context["in_reservation_mode"] = False
+                conversation_context["collected_info"] = {}
+                run_reservation_conversation(robot, tts_lang)
+                continue
 
             # Mode scan QR
             elif is_qr_scan_request(transcribed_text):
@@ -734,4 +959,6 @@ def run_conversation():
     finally:
         if robot.video_stream_active:
             robot.stop_continuous_video_stream()
+        robot.stop_pepper_microphones()
+        release_micro()
         robot.disconnect()

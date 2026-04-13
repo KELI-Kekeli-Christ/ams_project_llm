@@ -15,6 +15,11 @@ from utils.helpers import get_local_ip_for_robot
 
 # Import qi après setup_choreographe_environment (appelé depuis main)
 from datetime import datetime
+import wave
+try:
+    import numpy as np
+except ImportError:
+    np = None
 try:
     import qi
 except ImportError as e:
@@ -304,14 +309,85 @@ class RobotManager:
                     pass
             return None, None, None
 
+    def _rms_from_wav(self, path):
+        """Retourne le niveau RMS du fichier WAV (silence si bas)."""
+        if not os.path.exists(path) or os.path.getsize(path) < 100:
+            return 0.0
+        try:
+            w = wave.open(path, "rb")
+            try:
+                n = w.getnframes()
+                if n == 0:
+                    return 0.0
+                buf = w.readframes(n)
+            finally:
+                w.close()
+            if np is not None:
+                samples = np.frombuffer(buf, dtype=np.int16)
+                return float(np.sqrt(np.mean(samples.astype(np.float64) ** 2)))
+            total = 0
+            n = len(buf) // 2
+            for i in range(n):
+                s = int.from_bytes(buf[i*2:(i*2)+2], "little", signed=True)
+                total += s * s
+            return (total / n) ** 0.5 if n else 0.0
+        except Exception:
+            return 0.0
+
+    def _download_pepper_file(self, pepper_filename, local_path):
+        """Télécharge un fichier enregistré depuis Pepper vers un chemin local. Retourne True si ok."""
+        try:
+            filesystem = self.session.service("ALFilesystem")
+            if filesystem.exists(pepper_filename):
+                file_content = filesystem.readFile(pepper_filename)
+                with open(local_path, "wb") as f:
+                    f.write(file_content)
+                try:
+                    filesystem.remove(pepper_filename)
+                except Exception:
+                    pass
+                return True
+        except Exception:
+            pass
+        try:
+            import ftplib
+            ftp = ftplib.FTP()
+            ftp.connect(self.ip, 21, timeout=10)
+            ftp.login("nao", "nao")
+            ftp.cwd("recordings")
+            remote_name = os.path.basename(pepper_filename)
+            with open(local_path, "wb") as f:
+                ftp.retrbinary("RETR " + remote_name, f.write)
+            try:
+                ftp.delete(remote_name)
+            except Exception:
+                pass
+            ftp.quit()
+            return True
+        except Exception:
+            pass
+        try:
+            import paramiko
+            ssh = paramiko.SSHClient()
+            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            ssh.connect(self.ip, 22, username="nao", password="nao", timeout=10)
+            sftp = ssh.open_sftp()
+            sftp.get(pepper_filename, local_path)
+            sftp.close()
+            ssh.close()
+            return True
+        except Exception:
+            return False
+
     def record_audio_from_pepper(self, max_duration=30, silence_timeout=2.0, should_stop_callback=None):
         """
         Enregistre l'audio depuis les micros de Pepper.
-        Arrêt après silence_timeout secondes de silence ou quand should_stop_callback() retourne True.
+        Même principe que le PC : arrêt après silence_timeout secondes de silence (détection sur le micro Pepper),
+        ou quand should_stop_callback() retourne True.
 
         Args:
             max_duration: Durée max en secondes
-            silence_timeout: Secondes de silence avant arrêt auto
+            silence_timeout: Secondes de silence avant arrêt auto (ex. 2.0)
             should_stop_callback: Fonction appelée régulièrement, si True -> arrêt
 
         Returns:
@@ -320,6 +396,9 @@ class RobotManager:
         if not self.audio_recorder:
             print("Service AudioRecorder non disponible")
             return None
+        CHUNK_DURATION = 1.0
+        SILENCE_RMS_THRESHOLD = 600
+        silence_chunks_needed = max(1, int(round(silence_timeout / CHUNK_DURATION)))
         try:
             script_dir = os.path.dirname(os.path.abspath(__file__))
             robot_hotel_dir = os.path.dirname(script_dir)
@@ -328,81 +407,97 @@ class RobotManager:
                 os.makedirs(recordings_dir)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             local_file = os.path.join(recordings_dir, "pepper_{}.wav".format(timestamp))
-            pepper_filename = "/home/nao/recordings/audio_{}.wav".format(timestamp)
             try:
                 filesystem = self.session.service("ALFilesystem")
                 filesystem.makeFolder("/home/nao/recordings/")
             except Exception:
                 pass
-            print("Enregistrement depuis le micro de Pepper... (clic STOP ou {}s max)".format(max_duration))
-            self.audio_recorder.startMicrophonesRecording(
-                pepper_filename, "wav", 16000, [0, 0, 1, 0]
-            )
+            try:
+                self.audio_recorder.stopMicrophonesRecording()
+                time.sleep(0.3)
+            except Exception:
+                pass
+            print("Enregistrement depuis le micro de Pepper... 2 s de silence = envoi (ou {}s max)".format(max_duration))
+            chunk_paths = []
+            silence_count = 0
             start_time = time.time()
-            check_interval = 0.3
-            while True:
-                time.sleep(check_interval)
-                elapsed = time.time() - start_time
-                if elapsed >= max_duration:
-                    print("Arret apres {}s (duree max).".format(int(max_duration)))
-                    break
+            chunk_index = 0
+            while time.time() - start_time < max_duration:
                 if should_stop_callback and should_stop_callback():
                     print("Arret demande (clic stop).")
                     break
-            self.audio_recorder.stopMicrophonesRecording()
-            time.sleep(0.5)
-            downloaded = False
-            try:
-                filesystem = self.session.service("ALFilesystem")
-                if filesystem.exists(pepper_filename):
-                    file_content = filesystem.readFile(pepper_filename)
-                    with open(local_file, "wb") as f:
-                        f.write(file_content)
-                    downloaded = True
+                pepper_filename = "/home/nao/recordings/audio_{}_{}.wav".format(timestamp, chunk_index)
+                try:
+                    self.audio_recorder.startMicrophonesRecording(
+                        pepper_filename, "wav", 16000, [0, 0, 1, 0]
+                    )
+                except Exception as e:
+                    if "Already recording" in str(e):
+                        try:
+                            self.audio_recorder.stopMicrophonesRecording()
+                            time.sleep(0.2)
+                        except Exception:
+                            pass
+                        continue
+                    raise
+                time.sleep(CHUNK_DURATION)
+                try:
+                    self.audio_recorder.stopMicrophonesRecording()
+                except Exception:
+                    pass
+                time.sleep(0.3)
+                chunk_local = os.path.join(recordings_dir, "pepper_chunk_{}_{}.wav".format(timestamp, chunk_index))
+                if not self._download_pepper_file(pepper_filename, chunk_local):
+                    chunk_index += 1
+                    continue
+                if os.path.getsize(chunk_local) < 1000:
+                    chunk_index += 1
                     try:
-                        filesystem.remove(pepper_filename)
+                        os.remove(chunk_local)
                     except Exception:
                         pass
-            except Exception:
-                pass
-            if not downloaded:
-                try:
-                    import ftplib
-                    ftp = ftplib.FTP()
-                    ftp.connect(self.ip, 21, timeout=10)
-                    ftp.login("nao", "nao")
-                    ftp.cwd("recordings")
-                    remote_name = "audio_{}.wav".format(timestamp)
-                    with open(local_file, "wb") as f:
-                        ftp.retrbinary("RETR " + remote_name, f.write)
-                    try:
-                        ftp.delete(remote_name)
-                    except Exception:
-                        pass
-                    ftp.quit()
-                    downloaded = True
-                except Exception as e_ftp:
-                    print("FTP fallback echoue: {}".format(e_ftp))
-            if not downloaded:
-                try:
-                    import paramiko
-                    ssh = paramiko.SSHClient()
-                    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-                    ssh.connect(self.ip, 22, username="nao", password="nao", timeout=10)
-                    sftp = ssh.open_sftp()
-                    sftp.get(pepper_filename, local_file)
-                    sftp.close()
-                    ssh.close()
-                    downloaded = True
-                except ImportError:
-                    print("paramiko non installe: pip install paramiko")
-                except Exception as e_ssh:
-                    print("SSH fallback echoue: {}".format(e_ssh))
-            if not downloaded:
-                print("Fichier non cree sur Pepper")
+                    continue
+                rms = self._rms_from_wav(chunk_local)
+                if rms < SILENCE_RMS_THRESHOLD:
+                    silence_count += 1
+                    if silence_count >= silence_chunks_needed:
+                        try:
+                            os.remove(chunk_local)
+                        except Exception:
+                            pass
+                        break
+                else:
+                    silence_count = 0
+                chunk_paths.append(chunk_local)
+                chunk_index += 1
+            if not chunk_paths:
                 return None
+            ref = wave.open(chunk_paths[0], "rb")
+            try:
+                nchannels, sampwidth, framerate = ref.getnchannels(), ref.getsampwidth(), ref.getframerate()
+            finally:
+                ref.close()
+            out = wave.open(local_file, "wb")
+            try:
+                out.setnchannels(nchannels)
+                out.setsampwidth(sampwidth)
+                out.setframerate(framerate)
+                for p in chunk_paths:
+                    try:
+                        w = wave.open(p, "rb")
+                        try:
+                            out.writeframes(w.readframes(w.getnframes()))
+                        finally:
+                            w.close()
+                    except Exception:
+                        pass
+                    try:
+                        os.remove(p)
+                    except Exception:
+                        pass
+            finally:
+                out.close()
             if os.path.getsize(local_file) < 5000:
-                print("Fichier trop petit")
                 return None
             print("Fichier telecharge: {}".format(local_file))
             return local_file
@@ -410,7 +505,17 @@ class RobotManager:
             print("Erreur enregistrement Pepper: {}".format(e))
             import traceback
             traceback.print_exc()
+            self.stop_pepper_microphones()
             return None
+
+    def stop_pepper_microphones(self):
+        """Arrête l'enregistrement micro sur Pepper (évite « Already recording » au prochain démarrage)."""
+        if not self.audio_recorder:
+            return
+        try:
+            self.audio_recorder.stopMicrophonesRecording()
+        except Exception:
+            pass
 
     def _video_capture_worker(self):
         """Worker pour le flux vidéo continu"""
@@ -442,7 +547,7 @@ class RobotManager:
                                     with open(temp_file.name, 'rb') as qf:
                                         qr_resp = requests.post(
                                             "{}/scan_qr".format(API_CONFIG["base_url"]),
-                                            files={"file": qf},
+                                            files={"file": ("frame.jpg", qf)},
                                             timeout=API_CONFIG["timeout"]
                                         )
                                     if qr_resp.ok:

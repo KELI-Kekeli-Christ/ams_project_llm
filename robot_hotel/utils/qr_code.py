@@ -65,6 +65,39 @@ def generate_chat_qrcode(chat_url, as_base64=False):
     return img_bytes.getvalue()
 
 
+def generate_reservation_qrcode_file(reservation_id, output_dir=None):
+    """
+    Génère un QR code contenant l'ID de réservation et le sauvegarde sur disque.
+    Retourne le chemin du fichier ou None.
+
+    Args:
+        reservation_id: ID de la réservation (texte à encoder)
+        output_dir: Dossier de sortie (défaut: robot_hotel/static/qr ou temp)
+
+    Returns:
+        str ou None: Chemin du fichier PNG
+    """
+    import qrcode
+    if not reservation_id:
+        return None
+    try:
+        if output_dir is None:
+            base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            output_dir = os.path.join(base, "static", "qr")
+        os.makedirs(output_dir, exist_ok=True)
+        safe_id = "".join(c if c.isalnum() or c in "-_" else "_" for c in str(reservation_id))
+        path = os.path.join(output_dir, f"reservation_{safe_id}.png")
+        qr = qrcode.QRCode(version=1, error_correction=qrcode.constants.ERROR_CORRECT_L, box_size=10, border=4)
+        qr.add_data(str(reservation_id))
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="black", back_color="white")
+        img.save(path)
+        return path
+    except Exception as e:
+        print(f"⚠️ Génération QR réservation: {e}")
+        return None
+
+
 def verify_qr_with_api(qr_id):
     """
     Vérifie un QR code via l'API FastAPI

@@ -9,6 +9,7 @@ from .qr_scan import bp as qr_scan_bp
 from .email_routes import bp as email_bp
 from .pages import bp as pages_bp
 from .tablet import bp as tablet_bp
+from .conversation_routes import bp as conversation_bp
 
 __all__ = [
     'chat_bp',
@@ -19,4 +20,5 @@ __all__ = [
     'email_bp',
     'pages_bp',
     'tablet_bp',
+    'conversation_bp',
 ]

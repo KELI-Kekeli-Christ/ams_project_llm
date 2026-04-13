@@ -11,6 +11,9 @@ bp = Blueprint('tablet', __name__)
 _tablet_call_requested = False
 _tablet_call_stop = False
 
+# Demande de scan QR depuis la tablette (bouton "Scan QR")
+_tablet_scan_qr_requested = False
+
 
 def get_tablet_call_status():
     return {"call_requested": _tablet_call_requested, "call_stop": _tablet_call_stop}
@@ -30,6 +33,15 @@ def reset_tablet_call():
     global _tablet_call_requested, _tablet_call_stop
     _tablet_call_requested = False
     _tablet_call_stop = False
+
+
+def get_tablet_scan_qr_requested():
+    return _tablet_scan_qr_requested
+
+
+def set_tablet_scan_qr_requested(value):
+    global _tablet_scan_qr_requested
+    _tablet_scan_qr_requested = bool(value)
 
 
 def _tablet_html_content(recording_mode=False):
@@ -94,6 +106,28 @@ def tablet_call_status():
     """Statut de l'appel (poll par pepper_test)."""
     s = get_tablet_call_status()
     return jsonify(s)
+
+
+@bp.route('/tablet/scan_qr/status', methods=['GET'])
+def tablet_scan_qr_status():
+    """Statut demande de scan QR (poll par pepper_test)."""
+    return jsonify({"scan_qr_requested": get_tablet_scan_qr_requested()})
+
+
+@bp.route('/tablet/scan_qr/start', methods=['GET', 'POST'])
+def tablet_scan_qr_start():
+    """Déclenche une demande de scan QR (bouton sur la tablette)."""
+    set_tablet_scan_qr_requested(True)
+    if request.method == 'POST' or request.headers.get('Accept', '').find('json') >= 0:
+        return jsonify({"ok": True, "message": "Scan QR demandé"})
+    return "<html><head><meta charset='UTF-8'></head><body style='font-family:sans-serif;text-align:center;padding:2em;'><p>Scan QR demandé. Présentez votre QR code devant la caméra.</p></body></html>", 200, {'Content-Type': 'text/html; charset=utf-8'}
+
+
+@bp.route('/tablet/scan_qr/cleared', methods=['POST'])
+def tablet_scan_qr_cleared():
+    """Le script a pris en charge la demande de scan QR."""
+    set_tablet_scan_qr_requested(False)
+    return jsonify({"ok": True})
 
 
 @bp.route('/tablet/call/start', methods=['GET', 'POST'])
