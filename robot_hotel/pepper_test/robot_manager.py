@@ -6,12 +6,17 @@ import os
 import sys
 import time
 import json
+import logging
 import threading
 import requests
 import tempfile
 from config import API_CONFIG
 from flask_utils import post_file_with_retries
 from utils.helpers import get_local_ip_for_robot
+
+# Supprimer le warning "No handlers could be found for logger 'paramiko.transport'" (Python 2)
+logging.getLogger("paramiko").addHandler(logging.NullHandler())
+logging.getLogger("paramiko.transport").addHandler(logging.NullHandler())
 
 # Import qi après setup_choreographe_environment (appelé depuis main)
 from datetime import datetime
@@ -46,6 +51,7 @@ class RobotManager:
         self.latest_qr_result = None
         self.qr_lock = threading.Lock()
         self.connection_string = "tcp://{}:{}".format(ip, port)
+        self._asr_vocabulary_loaded = False  # True après le 1er setVocabulary réussi
 
     def connect(self):
         """
@@ -94,6 +100,15 @@ class RobotManager:
         except Exception as e:
             print("Service AudioRecorder non disponible: {}".format(e))
             self.audio_recorder = None
+        # ALSpeechRecognition pour le wake word (micros Pepper)
+        try:
+            self.speech_reco = self.session.service("ALSpeechRecognition")
+            self.memory = self.session.service("ALMemory")
+            print("Service SpeechRecognition initialise")
+        except Exception as e:
+            print("Service SpeechRecognition non disponible: {}".format(e))
+            self.speech_reco = None
+            self.memory = None
         try:
             self.video = self.session.service("ALVideoDevice")
             print("Service Video initialisé")
@@ -139,12 +154,17 @@ class RobotManager:
                 except Exception:
                     pass
             print("Le robot dit: '{}'".format(text))
-            try:
-                self.tts.say(text)
-            except Exception as e:
-                print("Erreur TTS:", e)
-                return False
-            return True
+            for attempt in range(2):
+                try:
+                    self.tts.say(text)
+                    return True
+                except Exception as e:
+                    print("Erreur TTS (tentative {}): {}".format(attempt + 1, e))
+                    if self._is_socket_error(e) and attempt == 0:
+                        if self.reconnect():
+                            continue
+                    return False
+            return False
         except Exception as e:
             print("Erreur lors de la synthèse vocale: {}".format(e))
             return False
@@ -188,12 +208,45 @@ class RobotManager:
             print("Erreur loadUrl: {}".format(e))
             return False
 
+    def _is_socket_error(self, exc):
+        """Retourne True si l'exception indique une déconnexion qi."""
+        msg = str(exc).lower()
+        return "socket is not connected" in msg or "connection" in msg
+
+    def reconnect(self):
+        """Tente de se reconnecter à Pepper et réinitialise les services."""
+        print("[Reconnexion] Tentative de reconnexion au robot {}...".format(self.ip))
+        try:
+            if self.session:
+                try:
+                    self.session.close()
+                except Exception:
+                    pass
+            self.session = None
+            self.tts = None
+            self.tablet = None
+            self.audio_recorder = None
+            self.speech_reco = None
+            self.memory = None
+            time.sleep(1.0)
+            if self.connect():
+                self.initialize_services()
+                print("[Reconnexion] Reconnecte avec succes.")
+                return True
+        except Exception as e:
+            print("[Reconnexion] Echec: {}".format(e))
+        return False
+
     def display_text(self, html_content):
-        """Affiche du contenu HTML sur la tablette"""
+        """Affiche du contenu HTML sur la tablette via data URL (base64).
+        Si le socket est déconnecté, tente une reconnexion unique.
+        Le fallback serveur HTTP a été supprimé (causait [Errno 98] Address already in use).
+        """
         if not self.tablet:
             print("Service Tablet non disponible")
             return False
         try:
+            # Normaliser en unicode
             html_normalized = html_content
             if sys.version_info[0] < 3:
                 if isinstance(html_normalized, str):
@@ -201,81 +254,47 @@ class RobotManager:
                         html_normalized = html_normalized.decode('utf-8')
                     except UnicodeDecodeError:
                         html_normalized = html_normalized.decode('utf-8', 'ignore')
-            try:
-                import base64
-                if sys.version_info[0] < 3:
-                    html_bytes = html_normalized.encode('utf-8', 'ignore')
-                else:
-                    html_bytes = html_normalized.encode('utf-8')
-                html_encoded = base64.b64encode(html_bytes)
-                if sys.version_info[0] >= 3:
-                    html_encoded = html_encoded.decode('ascii')
-                data_url = "data:text/html;charset=utf-8;base64,{}".format(html_encoded)
-                self.tablet.loadUrl(data_url)
-                print("Texte affiché sur la tablette via loadUrl (data URL)!")
-                time.sleep(1)
-                return True
-            except Exception as e_data:
-                print("loadUrl avec data URL a échoué: {}".format(e_data))
-            try:
-                if sys.version_info[0] < 3:
-                    html_for_tablet = html_normalized.encode('utf-8', 'ignore')
-                else:
-                    html_for_tablet = html_normalized
-                self.tablet.showWebview(html_for_tablet)
-                print("Texte affiché sur la tablette via showWebview!")
-                time.sleep(1)
-                return True
-            except Exception as e1:
-                print("showWebview a échoué: {}".format(e1))
+
+            import base64
+            if sys.version_info[0] < 3:
+                html_bytes = html_normalized.encode('utf-8', 'ignore')
+            else:
+                html_bytes = html_normalized.encode('utf-8')
+            html_encoded = base64.b64encode(html_bytes)
+            if sys.version_info[0] >= 3:
+                html_encoded = html_encoded.decode('ascii')
+            data_url = "data:text/html;charset=utf-8;base64,{}".format(html_encoded)
+
+            # ── Méthode 1 : loadUrl avec data URL ────────────────────────────
+            for attempt in range(2):
                 try:
-                    import codecs
-                    import socket
-                    try:
-                        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                        s.connect((self.ip, 80))
-                        local_ip = s.getsockname()[0]
-                        s.close()
-                    except Exception:
-                        local_ip = "127.0.0.1"
-                    temp_dir = tempfile.mkdtemp()
-                    html_file = os.path.join(temp_dir, "index.html")
-                    with codecs.open(html_file, 'w', encoding='utf-8') as f:
-                        f.write(html_normalized)
-                    if sys.version_info[0] < 3:
-                        import SocketServer
-                        import SimpleHTTPServer
-                        Handler = SimpleHTTPServer.SimpleHTTPRequestHandler
-                        Server = SocketServer.TCPServer
-                    else:
-                        import http.server
-                        import socketserver
-                        Handler = http.server.SimpleHTTPRequestHandler
-                        Server = socketserver.TCPServer
-                    port = 8080
-                    old_dir = os.getcwd()
-                    os.chdir(temp_dir)
-                    try:
-                        httpd = Server(("", port), Handler)
-                        server_thread = threading.Thread(target=httpd.serve_forever)
-                        server_thread.daemon = True
-                        server_thread.start()
-                        http_url = "http://{}:{}/index.html".format(local_ip, port)
-                        self.tablet.loadUrl(http_url)
-                        print("Texte affiché via loadUrl (HTTP)!")
-                        time.sleep(2)
-                        return True
-                    finally:
-                        os.chdir(old_dir)
-                except Exception as e2:
-                    print("Toutes les méthodes ont échoué: {}".format(e2))
-                    import traceback
-                    traceback.print_exc()
-                    return False
+                    self.tablet.loadUrl(data_url)
+                    time.sleep(0.8)
+                    return True
+                except Exception as e:
+                    print("loadUrl data URL echoue (tentative {}): {}".format(attempt + 1, e))
+                    if self._is_socket_error(e) and attempt == 0:
+                        if self.reconnect():
+                            continue  # réessayer après reconnexion
+                    break
+
+            # ── Méthode 2 : showWebview ───────────────────────────────────────
+            try:
+                if sys.version_info[0] < 3:
+                    self.tablet.showWebview(html_normalized.encode('utf-8', 'ignore'))
+                else:
+                    self.tablet.showWebview(html_normalized)
+                time.sleep(0.8)
+                return True
+            except Exception as e2:
+                print("showWebview echoue: {}".format(e2))
+
+            print("Affichage tablette impossible (socket deconnecte?).")
+            return False
+
         except Exception as e:
-            print("Erreur lors de l'affichage sur la tablette: {}".format(e))
-            import traceback
-            traceback.print_exc()
+            print("Erreur display_text: {}".format(e))
+            return False
             return False
 
     def capture_image_from_camera(self):
@@ -335,46 +354,60 @@ class RobotManager:
             return 0.0
 
     def _download_pepper_file(self, pepper_filename, local_path):
-        """Télécharge un fichier enregistré depuis Pepper vers un chemin local. Retourne True si ok."""
-        try:
-            filesystem = self.session.service("ALFilesystem")
-            if filesystem.exists(pepper_filename):
-                file_content = filesystem.readFile(pepper_filename)
-                with open(local_path, "wb") as f:
-                    f.write(file_content)
-                try:
-                    filesystem.remove(pepper_filename)
-                except Exception:
-                    pass
-                return True
-        except Exception:
-            pass
-        try:
-            import ftplib
-            ftp = ftplib.FTP()
-            ftp.connect(self.ip, 21, timeout=10)
-            ftp.login("nao", "nao")
-            ftp.cwd("recordings")
-            remote_name = os.path.basename(pepper_filename)
-            with open(local_path, "wb") as f:
-                ftp.retrbinary("RETR " + remote_name, f.write)
+        """Télécharge un fichier enregistré depuis Pepper vers un chemin local. Retourne True si ok.
+        Cache la méthode qui fonctionne pour éviter les timeouts des méthodes lentes à chaque chunk."""
+
+        # 1. ALFilesystem (le plus rapide, pas de timeout réseau)
+        if getattr(self, '_dl_method', None) != 'sftp':
             try:
-                ftp.delete(remote_name)
+                filesystem = self.session.service("ALFilesystem")
+                if filesystem.exists(pepper_filename):
+                    file_content = filesystem.readFile(pepper_filename)
+                    with open(local_path, "wb") as f:
+                        f.write(file_content)
+                    try:
+                        filesystem.remove(pepper_filename)
+                    except Exception:
+                        pass
+                    self._dl_method = 'alfs'
+                    return True
             except Exception:
                 pass
-            ftp.quit()
-            return True
-        except Exception:
-            pass
+
+        # 2. FTP (timeout réduit à 3s)
+        if getattr(self, '_dl_method', None) in (None, 'ftp'):
+            try:
+                import ftplib
+                ftp = ftplib.FTP()
+                ftp.connect(self.ip, 21, timeout=3)
+                ftp.login("nao", "nao")
+                ftp.cwd("recordings")
+                remote_name = os.path.basename(pepper_filename)
+                with open(local_path, "wb") as f:
+                    ftp.retrbinary("RETR " + remote_name, f.write)
+                try:
+                    ftp.delete(remote_name)
+                except Exception:
+                    pass
+                ftp.quit()
+                self._dl_method = 'ftp'
+                return True
+            except Exception:
+                pass
+
+        # 3. SFTP via paramiko (timeout réduit à 3s)
         try:
+            import warnings
+            warnings.filterwarnings("ignore", category=DeprecationWarning)
             import paramiko
             ssh = paramiko.SSHClient()
             ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            ssh.connect(self.ip, 22, username="nao", password="nao", timeout=10)
+            ssh.connect(self.ip, 22, username="nao", password="nao", timeout=3)
             sftp = ssh.open_sftp()
             sftp.get(pepper_filename, local_path)
             sftp.close()
             ssh.close()
+            self._dl_method = 'sftp'
             return True
         except Exception:
             return False
@@ -397,7 +430,7 @@ class RobotManager:
             print("Service AudioRecorder non disponible")
             return None
         CHUNK_DURATION = 1.0
-        SILENCE_RMS_THRESHOLD = 600
+        SILENCE_RMS_THRESHOLD = 100  # Abaissé : 600 coupait trop tôt (parole douce < 600)
         silence_chunks_needed = max(1, int(round(silence_timeout / CHUNK_DURATION)))
         try:
             script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -765,8 +798,129 @@ class RobotManager:
         except Exception:
             return None
 
+    # ─── Wake word via ALSpeechRecognition (micros Pepper) ───────────────────
+
+    def setup_wake_word_recognition(self, vocabulary=None, language="French"):
+        """Configure ALSpeechRecognition pour écouter les wake words via les micros de Pepper.
+        vocabulary : liste de mots/phrases à reconnaître (défaut: wake words standards)
+        language   : langue NAOqi (ex. "French", "English")
+
+        Stratégie robuste contre l'erreur Nuance "modifiable_grammar already exists" :
+        - 1er appel  : setup complet (langue + vocabulaire + subscribe)
+        - Rappels    : pause → éventuellement setVocabulary → unpause → subscribe
+          Si setVocabulary échoue avec "modifiable_grammar" (grammaire Nuance déjà chargée),
+          on saute setVocabulary : la grammaire du 1er appel est encore valide.
+        """
+        if not self.speech_reco or not self.memory:
+            print("ALSpeechRecognition non disponible, wake word PC utilise en fallback")
+            return False
+        if vocabulary is None:
+            vocabulary = [
+                "bonjour", "hey pepper", "ok pepper", "pepper",
+                "hello", "excuse moi", "s il vous plait",
+            ]
+        try:
+            # 1. Mettre en pause (toujours en premier)
+            try:
+                self.speech_reco.pause(True)
+            except Exception:
+                pass
+
+            # 2. Désabonner pour libérer l'abonnement actif (erreur ignorée si pas abonné)
+            try:
+                self.speech_reco.unsubscribe("wake_word_listener")
+            except Exception:
+                pass
+
+            # 3. Langue (une seule fois suffit, mais ne coûte rien de le refaire)
+            try:
+                self.speech_reco.setLanguage(language)
+            except Exception as e:
+                print("Langue '{}' non dispo: {}".format(language, e))
+
+            # 4. Charger le vocabulaire
+            #    La grammaire Nuance "modifiable_grammar" persiste sur le robot même entre
+            #    deux redémarrages du script. On tente setVocabulary dans tous les cas,
+            #    mais on accepte l'erreur "already exists" : le vocabulaire est déjà là.
+            try:
+                self.speech_reco.setVocabulary(vocabulary, False)
+                self._asr_vocabulary_loaded = True
+                print("Vocabulaire ASR charge: {}".format(vocabulary))
+            except Exception as vocab_err:
+                err_str = str(vocab_err)
+                if "modifiable_grammar" in err_str or "already exists" in err_str:
+                    # Grammaire déjà présente (session précédente ou appel précédent) — c'est OK
+                    self._asr_vocabulary_loaded = True
+                    print("Vocabulaire ASR deja charge (grammaire Nuance persistante) — OK")
+                else:
+                    raise  # autre erreur inattendue, on laisse remonter
+
+            # 5. Reprendre le moteur
+            try:
+                self.speech_reco.pause(False)
+            except Exception:
+                pass
+
+            # 6. S'abonner
+            self.speech_reco.subscribe("wake_word_listener")
+
+            # 7. Remettre la clé mémoire à zéro
+            try:
+                self.memory.insertData("WordRecognized", [])
+            except Exception:
+                pass
+
+            print("ALSpeechRecognition active (vocab: {})".format(vocabulary))
+            return True
+        except Exception as e:
+            try:
+                self.speech_reco.pause(False)
+            except Exception:
+                pass
+            print("Erreur setup ALSpeechRecognition: {}".format(e))
+            import traceback
+            traceback.print_exc()
+            return False
+
+    def check_pepper_wake_word(self, confidence_threshold=0.25):
+        """Lit ALMemory 'WordRecognized'. Retourne True si un wake word a été reconnu
+        avec une confiance >= confidence_threshold, False sinon."""
+        if not self.memory:
+            return False
+        try:
+            val = self.memory.getData("WordRecognized")
+            # val est de la forme [word, confidence, ...]
+            if not val or len(val) < 2:
+                return False
+            word = val[0] if val[0] else ""
+            confidence = float(val[1]) if val[1] else 0.0
+            if word and confidence >= confidence_threshold:
+                print("[WakeWord Pepper] '{}' confidence={:.2f}".format(word, confidence))
+                # Remettre à zéro pour ne pas re-détecter
+                try:
+                    self.memory.insertData("WordRecognized", [])
+                except Exception:
+                    pass
+                return True
+        except Exception:
+            pass
+        return False
+
+    def stop_wake_word_recognition(self):
+        """Désabonne ALSpeechRecognition."""
+        if not self.speech_reco:
+            return
+        try:
+            self.speech_reco.unsubscribe("wake_word_listener")
+            print("ALSpeechRecognition désabonné")
+        except Exception:
+            pass
+
+    # ─────────────────────────────────────────────────────────────────────────
+
     def disconnect(self):
         """Déconnecte du robot"""
+        self._asr_vocabulary_loaded = False  # reset pour la prochaine connexion
         if self.session:
             print("Déconnexion du robot...")
             self.session.close()

@@ -241,10 +241,23 @@ def is_reservation_request(text):
         return False
     if isinstance(text, bytes):
         text = text.decode("utf-8", errors="ignore")
-    # Normaliser en ASCII pour eviter UnicodeDecodeError (Python 2 bytes vs unicode)
     from utils.helpers import transliterate_to_ascii
     text_lower = transliterate_to_ascii(text).lower()
-    return ("reservation" in text_lower) or ("reserver" in text_lower)
+    # Mots-clés étendus : variantes françaises, anglaises, et erreurs de transcription courantes
+    keywords = [
+        "reservation", "reserver", "reserv",
+        "chambre", "nuit", "sejour", "hotel",
+        "dormir", "loger", "logement", "heberger", "hebergement",
+        "check in", "checkin", "check-in",
+        "booking", "book", "room",
+        "arrivee", "depart", "date",
+        "je veux rester", "je voudrais rester",
+        "je veux une chambre", "je voudrais une chambre",
+    ]
+    matched = next((kw for kw in keywords if kw in text_lower), None)
+    if matched:
+        print("[Intent] Reservation detectee via mot-cle: '{}'".format(matched))
+    return matched is not None
 
 
 def scan_qr_code_with_api(image_file_path=None, camera_url=None):
@@ -364,17 +377,29 @@ def conversation_start():
         return None
 
 
-def conversation_answer(session_id):
+def conversation_answer(session_id, audio_file=None):
     """
     Envoie la réponse (dernier enregistrement) à l'étape courante.
+    audio_file : chemin vers le fichier WAV (obligatoire pour micro Pepper).
     Retourne dict ou None.
     """
     try:
-        r = requests.post(
-            "{}/conversation/answer".format(API_CONFIG["base_url"]),
-            json={"session_id": session_id},
-            timeout=API_CONFIG["timeout"]
-        )
+        if audio_file and os.path.exists(audio_file):
+            # Envoyer directement le fichier (micro Pepper ou PC)
+            with open(audio_file, "rb") as f:
+                r = requests.post(
+                    "{}/conversation/answer".format(API_CONFIG["base_url"]),
+                    files={"file": ("audio.wav", f, "audio/wav")},
+                    data={"session_id": session_id},
+                    timeout=API_CONFIG["timeout"]
+                )
+        else:
+            # Fallback : le serveur utilise get_last_recorded_file_path()
+            r = requests.post(
+                "{}/conversation/answer".format(API_CONFIG["base_url"]),
+                json={"session_id": session_id},
+                timeout=API_CONFIG["timeout"]
+            )
         r.raise_for_status()
         return r.json()
     except Exception as e:

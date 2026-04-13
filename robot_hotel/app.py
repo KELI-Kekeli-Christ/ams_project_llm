@@ -55,6 +55,10 @@ def create_app():
 
     app.config['whisper_model'] = whisper_model
 
+    # Partager le modèle Whisper avec le service d'enregistrement (évite double chargement pour wake word)
+    from services.record import set_shared_whisper_model
+    set_shared_whisper_model(whisper_model)
+
     # Enregistrement des blueprints
     app.register_blueprint(chat_bp)
     if ENABLE_REALTIME_VOICE_CALL:

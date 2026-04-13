@@ -28,7 +28,7 @@ def charge_model_whisper(model_size="medium", force_cpu=False):
         print(f"📥 Chargement de Faster-Whisper '{model_size}' sur {device.upper()} ({compute_type})...")
         # Utilisation de WhisperModel de faster-whisper
         model = WhisperModel(model_size, device=device, compute_type=compute_type)
-        print(f"✅ Modèle chargé avec succès.")
+        print(f"✅ Modèle chargé avec succès sur {device}.")
         return model
     except Exception as e:
         print(f"❌ Erreur : {e}")

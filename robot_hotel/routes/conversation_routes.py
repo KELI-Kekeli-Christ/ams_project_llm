@@ -27,18 +27,35 @@ def conv_start():
 def conv_answer():
     """
     Transcrit le dernier enregistrement et traite la réponse pour l'étape courante.
-    Body JSON : {"session_id": "..."}
+    Accepte :
+      - multipart/form-data : {"session_id": "...", "file": <wav>}  (micro Pepper)
+      - application/json    : {"session_id": "..."}                  (micro PC)
     """
-    data = request.get_json(silent=True) or {}
-    session_id = data.get('session_id')
+    import tempfile, os as _os
+
+    # ── Récupérer session_id et fichier audio ────────────────────────────────
+    tmp_path = None
+    if request.files.get('file'):
+        # Le script Pepper a envoyé le fichier directement
+        session_id = request.form.get('session_id')
+        uploaded = request.files['file']
+        tmp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+        uploaded.save(tmp.name)
+        tmp.close()
+        tmp_path = tmp.name
+        file_path = tmp_path
+    else:
+        data = request.get_json(silent=True) or {}
+        session_id = data.get('session_id')
+        file_path = get_last_recorded_file_path()
+
     if not session_id:
         return jsonify({"error": "session_id requis", "status": "error"}), 400
 
-    file_path = get_last_recorded_file_path()
     if not file_path:
         return jsonify({
             "status": "retry",
-            "question": "Je n'ai pas reçu d'enregistrement. Appuyez sur le micro et parlez.",
+            "question": "Je n'ai pas recu d'enregistrement. Appuyez sur le micro et parlez.",
         }), 200
 
     model = current_app.config.get('whisper_model')
@@ -46,12 +63,19 @@ def conv_answer():
         tr = transcribe_audio(model, file_path)
         transcript = tr.get('text', '').strip()
     except Exception as e:
-        return jsonify({"error": f"Erreur de transcription : {e}", "status": "error"}), 500
+        return jsonify({"error": "Erreur de transcription : {}".format(e), "status": "error"}), 500
+    finally:
+        # Supprimer le fichier temporaire uploadé
+        if tmp_path and _os.path.exists(tmp_path):
+            try:
+                _os.remove(tmp_path)
+            except Exception:
+                pass
 
     if not transcript:
         return jsonify({
             "status": "retry",
-            "question": "Je n'ai rien entendu. Pouvez-vous répéter ?",
+            "question": "Je n'ai rien entendu. Pouvez-vous repeter ?",
         }), 200
 
     result = process_answer(session_id, transcript)

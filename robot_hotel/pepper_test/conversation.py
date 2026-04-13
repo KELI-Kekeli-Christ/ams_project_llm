@@ -35,15 +35,15 @@ from robot_manager import RobotManager
 def _record_audio(robot):
     """Enregistrement via micro Pepper ou PC selon config et disponibilite."""
     if robot and robot.audio_recorder and USE_PEPPER_MIC:
-        def should_stop():
-            try:
-                r = requests.get("{}/record/status".format(API_CONFIG["base_url"]), timeout=2)
-                if r.ok and not r.json().get("recording", True):
-                    return True
-            except Exception:
-                pass
-            return False
-        return robot.record_audio_from_pepper(max_duration=30, should_stop_callback=should_stop)
+        # NE PAS utiliser should_stop_callback qui vérifie /record/status :
+        # en mode micro Pepper, recording_active (PC) est toujours False →
+        # le callback retournait True immédiatement et coupait l'enregistrement
+        # dès le premier chunk. L'arrêt est géré par silence_timeout + max_duration.
+        return robot.record_audio_from_pepper(
+            max_duration=30,
+            silence_timeout=1.5,
+            should_stop_callback=None
+        )
     return record_audio_manual()
 
 
@@ -139,48 +139,97 @@ def _clear_tablet_scan_qr_requested():
 
 def _wait_for_wake_word(robot, tts_lang):
     """
-    Affiche la page d'attente sur la tablette et attend un wake word.
+    Attend un wake word via ALSpeechRecognition (micros Pepper) si disponible,
+    sinon replie sur le micro PC (serveur Flask).
     Retourne True dès qu'un mot déclencheur est détecté.
-    Quitte aussi si un appel vocal ou un scan QR est demandé (retourne False).
+    Retourne False si un appel vocal ou un scan QR est demandé depuis la tablette.
     """
-    base_url = API_CONFIG["base_url"].rstrip("/")
+    # --- Choisir la méthode ---
+    use_pepper_reco = (
+        robot is not None
+        and getattr(robot, 'speech_reco', None) is not None
+        and getattr(robot, 'memory', None) is not None
+    )
 
-    # Démarrer l'écoute côté serveur
-    reset_wake_word()
-    start_wake_word_detection()
+    if use_pepper_reco:
+        ok = robot.setup_wake_word_recognition(
+            vocabulary=[
+                "bonjour", "hey pepper", "ok pepper", "pepper",
+                "hello", "excuse moi", "s il vous plait",
+            ],
+            language="French"
+        )
+        if not ok:
+            use_pepper_reco = False
 
-    # Afficher la page d'attente sur la tablette
+    if not use_pepper_reco:
+        # Fallback : micro PC via le serveur Flask
+        reset_wake_word()
+        start_wake_word_detection()
+
+    # --- Afficher l'écran d'attente sur la tablette ---
+    # On utilise display_text (data URL locale) au lieu de load_tablet_url("/tablet")
+    # pour éviter que le serveur Flask serve une version mise en cache différente.
     if robot and robot.tablet:
+        local_ip = get_local_ip_for_robot(robot.ip)
+        api_url = "http://{}:5000".format(local_ip)
         robot.display_text(create_tablet_html(
             title="Pepper",
-            message="Je vous écoute...",
+            message="Pret a vous aider",
             subtitle="",
-            status="Dites « Bonjour » ou « Hey Pepper » pour commencer",
-            show_mic_button=False,
+            status="En attente",
+            show_mic_button=True,
             mic_active=False,
-            robot_ip=getattr(robot, 'ip', None)
+            api_url=api_url,
+            show_qr_button=True,
         ))
 
-    print("En attente d'un wake word (bonjour, hey pepper, ok pepper…)")
+    method_label = "ALSpeechRecognition (Pepper)" if use_pepper_reco else "micro PC"
+    print("En attente d'un wake word via {} (bonjour, hey pepper, ok pepper…)".format(method_label))
 
-    while True:
-        time.sleep(1.0)
+    try:
+        while True:
+            time.sleep(0.5)
 
-        # Vérifier si un appel ou scan QR est demandé depuis la tablette
-        try:
-            if _tablet_call_status().get("call_requested"):
-                return False
-            if _tablet_scan_qr_requested():
-                return False
-        except Exception:
-            pass
+            # Vérifier si un appel ou scan QR est demandé depuis la tablette
+            try:
+                if _tablet_call_status().get("call_requested"):
+                    return False
+                if _tablet_scan_qr_requested():
+                    return False
+            except Exception:
+                pass
 
-        if check_wake_word_status():
-            reset_wake_word()
-            print("Wake word détecté !")
-            if robot and robot.tts:
-                safe_say(robot, "Oui, je vous écoute. Comment puis-je vous aider ?", language=tts_lang)
-            return True
+            # Vérifier wake word
+            detected = False
+            if use_pepper_reco:
+                # Seuil abaissé à 0.25 (0.40 trop strict pour Pepper)
+                detected = robot.check_pepper_wake_word(confidence_threshold=0.25)
+            else:
+                detected = check_wake_word_status()
+                if detected:
+                    reset_wake_word()
+
+            # Fallback : si l'utilisateur tape le bouton MIC sur la tablette,
+            # l'enregistrement démarre → on le détecte comme un wake word implicite
+            if not detected:
+                try:
+                    r = requests.get("{}/record/status".format(API_CONFIG["base_url"]), timeout=2)
+                    if r.ok and r.json().get("recording", False):
+                        print("Bouton MIC appuye sur la tablette -> traite comme wake word")
+                        detected = True
+                except Exception:
+                    pass
+
+            if detected:
+                print("Wake word détecté !")
+                if robot and robot.tts:
+                    safe_say(robot, "Oui, je vous écoute. Comment puis-je vous aider ?", language=tts_lang)
+                return True
+    finally:
+        # Toujours arrêter ALSpeechRecognition après détection ou sortie
+        if use_pepper_reco:
+            robot.stop_wake_word_recognition()
 
 
 def _build_email_form_html(session_id, api_url, collected):
@@ -268,7 +317,19 @@ def run_reservation_conversation(robot, tts_lang):
     Le robot pose chaque question à voix haute, enregistre la réponse, passe à l'étape suivante.
     Quand toutes les infos vocales sont collectées, affiche le formulaire email sur la tablette.
     """
+    # base_url pour les appels API depuis le script Python (localhost convient)
     base_url = API_CONFIG["base_url"].rstrip("/")
+
+    # tablet_url pour le HTML affiché sur la tablette Pepper :
+    # la tablette est un appareil séparé — localhost:5000 pointe vers la tablette elle-même,
+    # pas vers le PC qui fait tourner Flask. On utilise l'IP réelle du PC.
+    tablet_url = base_url
+    if robot and getattr(robot, 'ip', None):
+        try:
+            _local_ip = get_local_ip_for_robot(robot.ip)
+            tablet_url = "http://{}:5000".format(_local_ip)
+        except Exception:
+            pass
 
     # Démarrer la conversation
     conv = conversation_start()
@@ -281,7 +342,7 @@ def run_reservation_conversation(robot, tts_lang):
     question = conv.get("question", "")
     label = conv.get("label", "")
 
-    print("Conversation réservation démarrée : session={}".format(session_id))
+    print("Conversation reservation demarree : session={}".format(session_id))
 
     while True:
         # Dire la question
@@ -321,8 +382,8 @@ def run_reservation_conversation(robot, tts_lang):
                 robot_ip=getattr(robot, 'ip', None)
             ))
 
-        # Envoyer au serveur
-        result = conversation_answer(session_id)
+        # Envoyer au serveur (avec le fichier audio pour que la transcription soit correcte)
+        result = conversation_answer(session_id, audio_file=audio_file)
         if not result:
             if robot and robot.tts:
                 safe_say(robot, "Erreur serveur. " + question, language=tts_lang)
@@ -330,7 +391,7 @@ def run_reservation_conversation(robot, tts_lang):
 
         status = result.get("status")
         transcript = result.get("transcript", "")
-        print("Réponse : status={} transcript={}".format(status, transcript))
+        safe_print("Reponse : status={} transcript={}", status, transliterate_to_ascii(transcript) if transcript else "")
 
         if status == "continue":
             question = result.get("question", "")
@@ -342,7 +403,8 @@ def run_reservation_conversation(robot, tts_lang):
             if robot and robot.tts:
                 safe_say(robot, result.get("question", "Veuillez entrer votre email sur la tablette."), language=tts_lang)
             if robot and robot.tablet:
-                email_html = _build_email_form_html(session_id, base_url, collected)
+                # tablet_url contient l'IP réelle du PC Flask (pas localhost)
+                email_html = _build_email_form_html(session_id, tablet_url, collected)
                 robot.display_text(email_html)
 
             # Attendre que l'utilisateur confirme (la session disparaît quand confirmée)
@@ -385,7 +447,7 @@ def run_reservation_conversation(robot, tts_lang):
 
         elif status == "error":
             err = result.get("error", "erreur inconnue")
-            print("Erreur conversation: {}".format(err))
+            safe_print("Erreur conversation: {}", transliterate_to_ascii(err) if isinstance(err, (str, bytes)) else err)
             if robot and robot.tts:
                 safe_say(robot, "Désolé, une erreur s'est produite. Réessayons plus tard.", language=tts_lang)
             return
@@ -402,12 +464,16 @@ def run_robot_call_flow(robot, tts_lang, conversation_context):
     Sortie quand l'utilisateur clique sur Raccrocher (call_stop).
     """
     base_url = API_CONFIG["base_url"].rstrip("/")
+    # Construire l'URL visible depuis la tablette du robot (pas localhost)
+    from utils import get_local_ip_for_robot
+    local_ip = get_local_ip_for_robot(robot.ip)
+    tablet_base_url = "http://{}:5000".format(local_ip)
     try:
         requests.post("{}/tablet/call/cleared".format(base_url), timeout=3)
     except Exception:
         pass
     if robot.tablet:
-        robot.load_tablet_url("{}/tablet/call".format(base_url))
+        robot.load_tablet_url("{}/tablet/call".format(tablet_base_url))
     if robot.tts:
         safe_say(robot, "Appel vocal activé. Parlez, deux secondes de silence envoient votre message. Dites raccrocher ou appuyez sur le bouton pour terminer.", language=tts_lang)
     session_id = conversation_context.get("chat_session_id")
@@ -792,7 +858,7 @@ def run_conversation():
                 continue
 
             txt_safe = transliterate_to_ascii(transcribed_text) if transcribed_text else "(vide)"
-            safe_print("Texte transcrit: {}", txt_safe)
+            safe_print(">>> TRANSCRIPTION WHISPER: '{}' (lang={})", txt_safe, detected_lang)
             if robot.tablet:
                 robot.display_text(create_tablet_html(
                     title="✅ Compris",
