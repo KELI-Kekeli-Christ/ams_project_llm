@@ -6,13 +6,13 @@ import os
 import threading
 from flask import jsonify
 SAMPLE_RATE = 16000
-THRESHOLD = 0.02     # Seuil de détection de silence (plus bas = moins sensible aux bruits de fond)
-SPEECH_THRESHOLD = 0.008  # Tres sensible pour detecter la parole
-SILENCE_LEVEL = 0.05   # En dessous = silence (parole typique > 0.05, bruit ambiant < 0.05)
+THRESHOLD = 0.01     # Seuil de détection de silence (plus bas = moins sensible aux bruits de fond)
+SPEECH_THRESHOLD = 0.08  # Tres sensible pour detecter la parole
+SILENCE_LEVEL = 0.03   # En dessous = silence (parole typique > 0.05, bruit ambiant < 0.05)
 SILENCE_RATIO = 0.7      # Silence = niveau < 70% du pic
 SILENCE_ABSOLUTE = 0.06  # Fallback : si niveau < ceci pendant 3s -> arret (sans avoir parle)
-SILENCE_DURATION = 2.0  # Pour record_until_silence (GET /record)
-SILENCE_DURATION_MANUAL = 2.0  # Secondes de silence pour arret auto (bouton micro)
+SILENCE_DURATION = 1.5  # Pour record_until_silence (GET /record)
+SILENCE_DURATION_MANUAL = 1.5  # Secondes de silence pour arret auto (bouton micro)
 MIN_RECORDING_BEFORE_SILENCE = 0.3  # Minimum avant de compter le silence
 MAX_RECORDING_DURATION = 60.0
 BLOCK_SIZE = 1024
@@ -24,8 +24,8 @@ os.makedirs(RECORDINGS_DIR, exist_ok=True)
 # Mots déclencheurs pour démarrer l'enregistrement automatiquement
 WAKE_WORDS = ["bonjour", "hello", "hola", "hey pepper", "ok pepper", "pepper"]
 WAKE_WORD_DETECTION_ENABLED = True
-# Seuil de parole pour le wake word (plus bas que THRESHOLD pour être plus sensible)
-WAKE_WORD_SPEECH_THRESHOLD = 0.02
+# Seuil de parole pour le wake word (adapte pour capter une voix plus faible)
+WAKE_WORD_SPEECH_THRESHOLD = 0.015
 
 # Générer le chemin du fichier
 OUTPUT_FILE = f"{RECORDINGS_DIR}/{time.strftime('%Y%m%d_%H%M%S')}_voice.wav"
@@ -61,7 +61,12 @@ def get_pepper_mic_mode():
 
 
 def is_silent(data, threshold):
-    return np.abs(data).mean() < threshold
+    return _audio_level(data) < threshold
+
+
+def _audio_level(data):
+    """Mesure simple de l'énergie audio, plus stable qu'une moyenne brute."""
+    return float(np.sqrt(np.mean(np.square(data.astype(np.float32)))))
 
 def record_until_silence():
     print("🎤 Parle... j'arrêterai quand tu te tais.")
@@ -111,7 +116,7 @@ def _record_audio_thread():
             data, _ = stream.read(1024)
             recording_data.append(data)
 
-            level = float(np.abs(data).mean())
+            level = _audio_level(data)
             elapsed = time.time() - recording_start_time
 
             # Parole : niveau > SILENCE_LEVEL -> reset (bruit ambiant < 0.035, parole > 0.05)
@@ -327,7 +332,7 @@ def start_wake_word_listening(stop_event):
                 samplerate=SAMPLE_RATE,
                 channels=1,
                 callback=_audio_callback,
-                blocksize=4096
+                blocksize=2048
             ):
                 # ── Calibration du bruit ambiant (2 secondes) ──────────────────
                 calib_levels = []
@@ -335,27 +340,27 @@ def start_wake_word_listening(stop_event):
                 while time.time() < calib_end:
                     try:
                         data = q.get(timeout=0.3)
-                        calib_levels.append(float(np.abs(data).mean()))
+                        calib_levels.append(_audio_level(data))
                     except queue.Empty:
                         pass
                 if calib_levels:
                     noise_floor = sum(calib_levels) / len(calib_levels)
                 else:
-                    noise_floor = 0.10
-                # Seuil parole = bruit_ambiant * 2.5 (minimum 0.15 pour éviter
-                # les faux positifs sur bruit seul)
-                speech_threshold = max(noise_floor * 2.5, 0.15)
-                silence_threshold = noise_floor * 1.5
+                    noise_floor = 0.06
+                # Seuil parole = bruit_ambiant * 2.0 avec un plancher plus bas
+                # pour mieux capter les voix faibles.
+                speech_threshold = max(noise_floor * 2.0, WAKE_WORD_SPEECH_THRESHOLD)
+                silence_threshold = max(noise_floor * 1.3, 0.02)
                 print("[WakeWord] Bruit ambiant={:.4f} | Seuil parole={:.4f} | Seuil silence={:.4f}".format(
                     noise_floor, speech_threshold, silence_threshold))
 
                 audio_buffer = []
                 silence_counter = 0
                 speaking = False
-                # 1.5s de silence à blocksize=4096 @ 16000Hz
-                silence_blocks_needed = int(1.5 * SAMPLE_RATE / 4096)
+                # 1.2s de silence à blocksize=2048 @ 16000Hz
+                silence_blocks_needed = int(1.2 * SAMPLE_RATE / 2048)
                 # Max 6s de buffer pour éviter l'accumulation infinie
-                max_buffer_blocks = int(6.0 * SAMPLE_RATE / 4096)
+                max_buffer_blocks = int(6.0 * SAMPLE_RATE / 2048)
 
                 while not stop_event.is_set():
                     try:
@@ -363,7 +368,7 @@ def start_wake_word_listening(stop_event):
                     except queue.Empty:
                         continue
 
-                    level = float(np.abs(data).mean())
+                    level = _audio_level(data)
 
                     if level > speech_threshold:
                         speaking = True
@@ -382,7 +387,7 @@ def start_wake_word_listening(stop_event):
                         silence_counter = 0
                         continue
 
-                    # 1.5s de silence après parole → transcrire
+                    # 1.2s de silence après parole → transcrire
                     if speaking and silence_counter >= silence_blocks_needed:
                         full_audio = np.concatenate(audio_buffer)
                         audio_buffer = []

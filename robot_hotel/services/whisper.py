@@ -81,7 +81,14 @@ def transcribe_audio(model, file):
     try:
         # beam_size=1 est beaucoup plus rapide pour du temps réel (greedy decoding)
         # vad_filter=True retire automatiquement les silences pour gagner du temps
-        segments, info = model.transcribe(wav_path, beam_size=1, vad_filter=True)
+        # language="fr" évite les dérives de détection automatique sur des phrases courtes.
+        segments, info = model.transcribe(
+            wav_path,
+            beam_size=1,
+            vad_filter=True,
+            language="fr",
+            condition_on_previous_text=False,
+        )
         
         # On concatène les segments (faster-whisper renvoie un générateur)
         text = " ".join([segment.text for segment in segments]).strip()
