@@ -14,7 +14,7 @@ SILENCE_ABSOLUTE = 0.06  # Fallback : si niveau < ceci pendant 3s -> arret (sans
 SILENCE_DURATION = 1.5  # Pour record_until_silence (GET /record)
 SILENCE_DURATION_MANUAL = 1.5  # Secondes de silence pour arret auto (bouton micro)
 MIN_RECORDING_BEFORE_SILENCE = 0.3  # Minimum avant de compter le silence
-MAX_RECORDING_DURATION = 60.0
+MAX_RECORDING_DURATION = 10.0
 BLOCK_SIZE = 1024
 # ~64ms par bloc -> N blocs = 2 secondes
 SILENCE_BLOCKS_NEEDED = int(SILENCE_DURATION_MANUAL * SAMPLE_RATE / BLOCK_SIZE)
@@ -95,8 +95,7 @@ def record_until_silence():
     audio = np.concatenate(recording, axis=0)
     write(OUTPUT_FILE, SAMPLE_RATE, audio)
     print("💾 Enregistré sous :", OUTPUT_FILE)
-    file=os.listdir("recordings")
-    return jsonify({"message": "Enregistrement terminé", "file": f"{RECORDINGS_DIR}/{file[-1]}"})
+    return jsonify({"message": "Enregistrement terminé", "file": OUTPUT_FILE})
 
 def _record_audio_thread():
     """Thread pour enregistrer l'audio. Arret auto apres 2 s de silence (temps reel)."""
@@ -236,10 +235,9 @@ def stop_manual_recording():
             audio = np.concatenate(recording_data, axis=0)
             write(OUTPUT_FILE, SAMPLE_RATE, audio)
             print(f"💾 Enregistré sous : {OUTPUT_FILE}")
-            file_list = os.listdir(RECORDINGS_DIR)
             return jsonify({
                 "message": "Enregistrement terminé",
-                "file": f"{RECORDINGS_DIR}/{file_list[-1]}" if file_list else OUTPUT_FILE,
+                "file": OUTPUT_FILE,
                 "status": "saved"
             })
         except Exception as e:

@@ -101,6 +101,24 @@ def conv_confirm():
     return jsonify(result)
 
 
+@bp.route('/conversation/edit', methods=['POST'])
+def conv_edit():
+    """
+    Met à jour les champs collectés d'une conversation (appelé depuis la tablette).
+    Body JSON: {"session_id": "...", "updates": {"nom": "...", "prenom": "...", ...}}
+    """
+    data = request.get_json(silent=True) or {}
+    session_id = data.get('session_id')
+    updates = data.get('updates') or {}
+
+    if not session_id:
+        return jsonify({"error": "session_id requis", "status": "error"}), 400
+
+    from services.reservation_conversation import update_conversation_data
+    res = update_conversation_data(session_id, updates)
+    return jsonify(res)
+
+
 @bp.route('/conversation/state')
 def conv_state():
     """Retourne l'état courant d'une conversation (pour debug)."""
@@ -269,6 +287,19 @@ def _build_reservation_html(api_url):
     <div class="summary" id="summary"></div>
     <input type="email" id="emailInput" class="email-input" placeholder="votre@email.com" />
     <button class="ok-btn" id="okBtn" onclick="confirmRes()">✅ Confirmer la réservation</button>
+    <div style="margin-top:8px; display:flex; gap:8px;">
+      <button style="flex:1; background:#1976d2; border:none; border-radius:12px; padding:10px; color:white; cursor:pointer;" id="editBtn" onclick="editInfo()">✏️ Modifier</button>
+    </div>
+    <div id="editSection" style="display:none; margin-top:10px; text-align:left;">
+      <input id="edit_nom" placeholder="Nom" style="width:100%; padding:10px; margin-bottom:6px; border-radius:8px; border:none; font-size:16px;" />
+      <input id="edit_prenom" placeholder="Prénom" style="width:100%; padding:10px; margin-bottom:6px; border-radius:8px; border:none; font-size:16px;" />
+      <input id="edit_date_arrivee" placeholder="Date arrivée (YYYY-MM-DD)" style="width:100%; padding:10px; margin-bottom:6px; border-radius:8px; border:none; font-size:16px;" />
+      <input id="edit_date_depart" placeholder="Date départ (YYYY-MM-DD)" style="width:100%; padding:10px; margin-bottom:6px; border-radius:8px; border:none; font-size:16px;" />
+      <div style="display:flex; gap:8px;">
+        <button style="flex:1; background:#43a047; border:none; border-radius:12px; padding:10px; color:white; cursor:pointer;" onclick="saveEditInfo()">💾 Enregistrer</button>
+        <button style="flex:1; background:#9e9e9e; border:none; border-radius:12px; padding:10px; color:white; cursor:pointer;" onclick="cancelEdit()">✖ Annuler</button>
+      </div>
+    </div>
   </div>
 
   <button class="back" onclick="goBack()">← Retour accueil</button>
@@ -294,6 +325,62 @@ def _build_reservation_html(api_url):
     r.onerror = function() {{ cb(false, {{error:'Connexion perdue'}}); }};
     r.send(body ? JSON.stringify(body) : null);
   }}
+    window.editInfo = function() {{
+      var s = document.getElementById('summary');
+      // Pré-remplir les champs d'édition à partir du résumé affiché si possible
+      var collected = {{nom: '', prenom: '', date_arrivee: '', date_depart: ''}};
+      try {{
+        // tenter d'extraire depuis le summary innerText
+        var lines = s.innerText.split('\\n');
+        lines.forEach(function(l) {{
+          if (l.indexOf('Nom :') !== -1) {{
+            var m = l.replace('Nom :','').trim().split(' ');
+            collected.prenom = m[0] || '';
+            collected.nom = m.slice(1).join(' ') || collected.nom;
+          }}
+          if (l.indexOf('Arrivée :') !== -1) {{ collected.date_arrivee = l.replace('Arrivée :','').trim(); }}
+          if (l.indexOf('Départ :') !== -1) {{ collected.date_depart = l.replace('Départ :','').trim(); }}
+        }});
+      }} catch(e) {{}}
+      document.getElementById('edit_nom').value = collected.nom || '';
+      document.getElementById('edit_prenom').value = collected.prenom || '';
+      document.getElementById('edit_date_arrivee').value = collected.date_arrivee || '';
+      document.getElementById('edit_date_depart').value = collected.date_depart || '';
+      document.getElementById('editSection').style.display = 'block';
+      document.getElementById('editBtn').disabled = true;
+    }};
+
+    window.cancelEdit = function() {{
+      document.getElementById('editSection').style.display = 'none';
+      document.getElementById('editBtn').disabled = false;
+    }};
+
+    window.saveEditInfo = function() {{
+      var updates = {{}};
+      var nom = document.getElementById('edit_nom').value.trim();
+      var prenom = document.getElementById('edit_prenom').value.trim();
+      var da = document.getElementById('edit_date_arrivee').value.trim();
+      var dd = document.getElementById('edit_date_depart').value.trim();
+      if (nom) updates.nom = nom;
+      if (prenom) updates.prenom = prenom;
+      if (da) updates.date_arrivee = da;
+      if (dd) updates.date_depart = dd;
+      var btn = document.getElementById('editBtn');
+      btn.disabled = true;
+      xhr('POST', API + '/conversation/edit', {{session_id: sessionId, updates: updates}}, function(ok, res) {{
+        btn.disabled = false;
+        if (ok && res.status === 'success') {{
+          // Mettre à jour l'affichage résumé
+          var collected = res.data || {{}};
+          showEmail(collected);
+          document.getElementById('editSection').style.display = 'none';
+          document.getElementById('editBtn').disabled = false;
+        }} else {{
+          alert('Erreur en enregistrant les modifications: ' + (res.error || 'réessayez'));
+        }}
+      }});
+    }};
+
 
   function setLabel(txt) {{ document.getElementById('label').textContent = txt || ''; }}
   function setBubble(txt) {{ document.getElementById('bubble').textContent = txt; }}

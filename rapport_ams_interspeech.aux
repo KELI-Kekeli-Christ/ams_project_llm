@@ -1,0 +1,75 @@
+\relax 
+\citation{bickmore2005}
+\citation{saerbeck2010}
+\@writefile{toc}{\contentsline {section}{\numberline {1} Introduction}{1}{}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces High-level server and component architecture of AMS-Hotel.}}{1}{}\protected@file@percent }
+\providecommand*\caption@xref[2]{\@setref\relax\@undefined{#1}}
+\newlabel{fig:server}{{1}{1}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {2} System Architecture}{1}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.1} Global Overview}{1}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.2} Component Decomposition}{1}{}\protected@file@percent }
+\citation{whisper2022}
+\citation{liu2022}
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Internal service layout of the Flask backend, with external Pepper robot and browser clients.}}{2}{}\protected@file@percent }
+\newlabel{fig:components}{{2}{2}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {3} Speech Processing Pipeline}{2}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.1} Wake Word Detection}{2}{}\protected@file@percent }
+\newlabel{eq:rms}{{1}{2}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.2} Audio Capture Parameters}{2}{}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Audio capture and silence detection parameters}}{2}{}\protected@file@percent }
+\newlabel{tab:audio_params}{{1}{2}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.3} Automatic Speech Recognition}{2}{}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces ASR pipeline: audio capture, silence detection, Whisper transcription, and intent routing.}}{2}{}\protected@file@percent }
+\newlabel{fig:asr}{{3}{2}{}{}{}}
+\newlabel{eq:asr_latency}{{2}{2}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {4} Conversational AI with RAG}{2}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.1} Retrieval-Augmented Generation}{2}{}\protected@file@percent }
+\newlabel{eq:cosine}{{3}{2}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.2} LLM Configuration}{2}{}\protected@file@percent }
+\@writefile{lol}{\contentsline {lstlisting}{\numberline {1}{\ignorespaces System prompt template (condensed)}}{2}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.3} Intent Detection}{2}{}\protected@file@percent }
+\newlabel{eq:intent}{{4}{2}{}{}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces LLM inference hyperparameters}}{3}{}\protected@file@percent }
+\newlabel{tab:llm_params}{{2}{3}{}{}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces Reservation FSM. Six states collect one slot each. Retry loops on \textit  {email} and \textit  {dates} handle invalid inputs.}}{3}{}\protected@file@percent }
+\newlabel{fig:fsm}{{4}{3}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {5} Reservation Finite-State Machine}{3}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.1} Field Extraction}{3}{}\protected@file@percent }
+\@writefile{lol}{\contentsline {lstlisting}{\numberline {2}{\ignorespaces LLM-assisted date parsing}}{3}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.2} Confirmation and QR Codes}{3}{}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces Message sequence for the real-time voice call. Browser path (top) uses WebSocket streaming; Pepper path (bottom) uses \texttt  {POST /chat/voice}. Both share the same session.}}{3}{}\protected@file@percent }
+\newlabel{fig:call_flow}{{5}{3}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {6} Real-Time Voice Call Subsystem}{3}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.1} Architecture}{3}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.2} Streaming Inference}{3}{}\protected@file@percent }
+\newlabel{eq:bargein}{{5}{3}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {7} Vision Subsystem}{3}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.1} Face Recognition}{3}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.2} QR Code Scanning}{4}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {8} API Surface and Routing}{4}{}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces Main REST API endpoints (Flask blueprints)}}{4}{}\protected@file@percent }
+\newlabel{tab:api}{{3}{4}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {9} Tablet Interface}{4}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {10} Session Memory Architecture}{4}{}\protected@file@percent }
+\newlabel{eq:history}{{6}{4}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {11} Deployment and Administration}{4}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.1} Docker Composition}{4}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.2} Streamlit Admin Dashboard}{4}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {12} Discussion}{4}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.1} Latency Breakdown}{4}{}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {4}{\ignorespaces Observed latency components (GPU server, model=medium)}}{4}{}\protected@file@percent }
+\newlabel{tab:latency}{{4}{4}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.2} Limitations}{4}{}\protected@file@percent }
+\bibstyle{IEEEtran}
+\bibcite{bickmore2005}{1}
+\bibcite{saerbeck2010}{2}
+\bibcite{whisper2022}{3}
+\bibcite{liu2022}{4}
+\bibcite{touvron2023}{5}
+\bibcite{reimers2019}{6}
+\bibcite{naoqi}{7}
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.3} Future Work}{5}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {13} Conclusions}{5}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {14} Acknowledgements}{5}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {15} References}{5}{}\protected@file@percent }
+\gdef \@abspage@last{5}

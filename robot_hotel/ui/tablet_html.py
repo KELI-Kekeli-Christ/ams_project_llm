@@ -174,7 +174,8 @@ def create_tablet_html(
         chat_url = f"{api_url.rstrip('/')}/chat"
         qr_page_url = f"{api_url.rstrip('/')}/chat/qrcode/html"
         chat_qr_html = f"""
-        <div style="margin-top: 30px; text-align: center;">
+        <div style="margin-top: 30px; text-align: center; background-color: rgba(255,255,255,0.12); border-radius: 14px; padding: 18px 14px;">
+            <p style="font-size: 18px; font-weight: bold; color: white; margin-bottom: 12px;">📱 Scanner du chat</p>
             <a href="{qr_page_url}" style="
                 display: inline-block;
                 background-color: #FF9800;
@@ -186,7 +187,7 @@ def create_tablet_html(
                 font-weight: bold;
                 text-decoration: none;
                 cursor: pointer;
-            ">📱 QR Code Chatbot</a>
+            >Ouvrir le QR Code Chatbot</a>
             <p style="font-size: 16px; color: white; margin-top: 10px;">Scannez pour discuter avec Pepper</p>
         </div>
         """

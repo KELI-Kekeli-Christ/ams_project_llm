@@ -129,17 +129,32 @@ def get_local_ip_for_robot(robot_ip):
         s.connect((robot_ip, 80))
         local_ip = s.getsockname()[0]
         s.close()
-        return local_ip
+        if local_ip and local_ip != "127.0.0.1":
+            return local_ip
     except Exception:
-        try:
-            import socket
-            hostname = socket.gethostname()
-            local_ip = socket.gethostbyname(hostname)
-            if local_ip != "127.0.0.1":
-                return local_ip
-        except Exception:
-            pass
-        return "127.0.0.1"
+        pass
+
+    try:
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        local_ip = s.getsockname()[0]
+        s.close()
+        if local_ip and local_ip != "127.0.0.1":
+            return local_ip
+    except Exception:
+        pass
+
+    try:
+        import socket
+        hostname = socket.gethostname()
+        local_ip = socket.gethostbyname(hostname)
+        if local_ip and local_ip != "127.0.0.1":
+            return local_ip
+    except Exception:
+        pass
+
+    return "127.0.0.1"
 
 
 def map_language_code_to_ald_label(code):

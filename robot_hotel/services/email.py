@@ -4,6 +4,7 @@ Service d'envoi d'emails pour notifier le gestionnaire des nouvelles réservatio
 import smtplib
 import json
 import os
+from email.utils import formataddr, formatdate, make_msgid
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
@@ -524,6 +525,7 @@ def send_reservation_confirmation(user_data: Dict) -> Dict:
         config = load_email_config()
         
         if not config.get("email_enabled", False):
+            print("[EMAIL] ⚠️ Service email désactivé")
             return {
                 "success": False,
                 "error": "Service email désactivé"
@@ -534,17 +536,29 @@ def send_reservation_confirmation(user_data: Dict) -> Dict:
         manager_email = config.get("manager_email")
         client_email = user_data.get("email")
         
+        print(f"[EMAIL] Envoi de confirmation pour client: {client_email}")
+        print(f"[EMAIL] Manager: {manager_email}")
+        print(f"[EMAIL] SMTP: {config.get('smtp_server')}:{config.get('smtp_port')}")
+        
         if not smtp_username or not smtp_password:
+            print("[EMAIL] ❌ Configuration SMTP incomplète")
             return {
                 "success": False,
                 "error": "Configuration SMTP incomplète"
             }
         
+        sender_name = "Hôtel Robot"
+        sender_addr = formataddr((sender_name, smtp_username))
+
         # Créer le message pour le client
-        client_msg = MIMEMultipart()
-        client_msg['From'] = smtp_username
+        client_msg = MIMEMultipart('alternative')
+        client_msg['From'] = sender_addr
         client_msg['To'] = client_email
         client_msg['Subject'] = "🤖 Confirmation de votre réservation - Hôtel Robot"
+        client_msg['Reply-To'] = sender_addr
+        client_msg['Date'] = formatdate(localtime=True)
+        client_msg['Message-ID'] = make_msgid(domain=smtp_username.split('@')[-1])
+        client_msg['X-Mailer'] = 'Robot Hotel Reservation System'
         
         # Corps HTML pour le client
         client_html = f"""
@@ -569,12 +583,26 @@ def send_reservation_confirmation(user_data: Dict) -> Dict:
         </body>
         </html>
         """
+
+        client_text = (
+            "Confirmation de réservation\n\n"
+            f"Bonjour {user_data.get('prenom', '')} {user_data.get('nom', '')},\n\n"
+            "Votre réservation a été confirmée avec succès !\n"
+            f"Chambre : {user_data.get('type_chambre', 'N/A')}\n"
+            f"Arrivée : {user_data.get('date_arrivee', 'N/A')}\n"
+            f"Départ : {user_data.get('date_depart', 'N/A')}\n"
+            f"Email : {user_data.get('email', 'N/A')}\n"
+        )
         
         # Créer le message pour le gestionnaire
-        manager_msg = MIMEMultipart()
-        manager_msg['From'] = smtp_username
+        manager_msg = MIMEMultipart('alternative')
+        manager_msg['From'] = sender_addr
         manager_msg['To'] = manager_email
         manager_msg['Subject'] = "🆕 Nouvelle réservation confirmée - Hôtel Robot"
+        manager_msg['Reply-To'] = sender_addr
+        manager_msg['Date'] = formatdate(localtime=True)
+        manager_msg['Message-ID'] = make_msgid(domain=smtp_username.split('@')[-1])
+        manager_msg['X-Mailer'] = 'Robot Hotel Reservation System'
         
         # Corps HTML pour le gestionnaire
         manager_html = f"""
@@ -597,42 +625,65 @@ def send_reservation_confirmation(user_data: Dict) -> Dict:
         </body>
         </html>
         """
+
+        manager_text = (
+            "Nouvelle réservation confirmée\n\n"
+            f"Client : {user_data.get('prenom', '')} {user_data.get('nom', '')}\n"
+            f"Email : {user_data.get('email', 'N/A')}\n"
+            f"Chambre : {user_data.get('type_chambre', 'N/A')}\n"
+            f"Arrivée : {user_data.get('date_arrivee', 'N/A')}\n"
+            f"Départ : {user_data.get('date_depart', 'N/A')}\n"
+        )
         
         # Envoyer à tous les destinataires
         results = []
-        
+        failures = 0
+
         # Email au client
         if client_email:
             try:
+                print(f"[EMAIL] 📧 Envoi au CLIENT: {client_email}")
+                client_msg.attach(MIMEText(client_text, 'plain', 'utf-8'))
                 client_msg.attach(MIMEText(client_html, 'html'))
-                server = smtplib.SMTP(config["smtp_server"], config["smtp_port"])
+                server = smtplib.SMTP(config["smtp_server"], config["smtp_port"], timeout=20)
+                server.ehlo()
                 server.starttls()
+                server.ehlo()
                 server.login(smtp_username, smtp_password)
-                server.sendmail(smtp_username, client_email, client_msg.as_string())
+                server.send_message(client_msg)
                 server.quit()
                 results.append(f"✅ Email client envoyé à {client_email}")
-                print(f"✅ Email de confirmation envoyé au client: {client_email}")
+                print(f"[EMAIL] ✅ Email CLIENT envoyé avec succès: {client_email}")
             except Exception as e:
+                failures += 1
                 results.append(f"❌ Échec email client: {e}")
-                print(f"❌ Erreur envoi email client: {e}")
-        
+                print(f"[EMAIL] ❌ Erreur envoi CLIENT: {e}")
+        else:
+            print(f"[EMAIL] ⚠️ Pas d'email client fourni")
+
         # Email au gestionnaire
         try:
+            print(f"[EMAIL] 📧 Envoi au GESTIONNAIRE: {manager_email}")
+            manager_msg.attach(MIMEText(manager_text, 'plain', 'utf-8'))
             manager_msg.attach(MIMEText(manager_html, 'html'))
-            server = smtplib.SMTP(config["smtp_server"], config["smtp_port"])
+            server = smtplib.SMTP(config["smtp_server"], config["smtp_port"], timeout=20)
+            server.ehlo()
             server.starttls()
+            server.ehlo()
             server.login(smtp_username, smtp_password)
-            server.sendmail(smtp_username, manager_email, manager_msg.as_string())
+            server.send_message(manager_msg)
             server.quit()
             results.append(f"✅ Email gestionnaire envoyé à {manager_email}")
-            print(f"✅ Email de notification envoyé au gestionnaire: {manager_email}")
+            print(f"[EMAIL] ✅ Email GESTIONNAIRE envoyé avec succès: {manager_email}")
         except Exception as e:
+            failures += 1
             results.append(f"❌ Échec email gestionnaire: {e}")
-            print(f"❌ Erreur envoi email gestionnaire: {e}")
-        
+            print(f"[EMAIL] ❌ Erreur envoi GESTIONNAIRE: {e}")
+
+        success = (failures == 0)
         return {
-            "success": True,
-            "message": "Emails de confirmation envoyés",
+            "success": success,
+            "message": "Emails de confirmation envoyés" if success else "Échec d'envoi d'un ou plusieurs emails",
             "details": results
         }
         

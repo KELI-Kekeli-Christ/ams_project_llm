@@ -412,7 +412,7 @@ class RobotManager:
         except Exception:
             return False
 
-    def record_audio_from_pepper(self, max_duration=30, silence_timeout=2.0, should_stop_callback=None):
+    def record_audio_from_pepper(self, max_duration=10, silence_timeout=2.0, should_stop_callback=None):
         """
         Enregistre l'audio depuis les micros de Pepper.
         Même principe que le PC : arrêt après silence_timeout secondes de silence (détection sur le micro Pepper),
