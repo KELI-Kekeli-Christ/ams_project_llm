@@ -51,9 +51,6 @@ AMS is a multi-component repository for a **hotel assistant**. A FastAPI backend
   <img src="Server.png" alt="Server architecture" width="85%">
 </p>
 
-<p align="center">
-  <img src="ASR.png" alt="ASR pipeline" width="85%">
-</p>
 
 The editable mind maps are in [`Server.xmind`](Server.xmind), [`ASR.xmind`](ASR.xmind) and [`Audio.xmind`](Audio.xmind). An interactive view of the flow is in [`workflow_diagram.html`](workflow_diagram.html).
 
